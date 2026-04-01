@@ -1,0 +1,62 @@
+{
+  "_comment": "Multi-provider LLM agent configuration. Edit this file to switch models or add API keys.",
+
+  "mode": "cli",
+  "default_model": "openai_ui",
+  "headless": false,
+  "workspace": "./workspace",
+
+  "providers": {
+
+    "openai_ui": {
+      "_comment": "ChatGPT via browser automation (Playwright). No API key needed.",
+      "profile_dir":      "C:\\Users\\medte\\AppData\\Local\\PlaywrightProfile",
+      "executable_path":  "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+      "chatgpt_url":      "https://chat.openai.com"
+    },
+
+    "claude": {
+      "_comment": "Anthropic Claude. Requires: pip install anthropic",
+      "api_key": "",
+      "model":   "claude-opus-4-6"
+    },
+
+    "gemini": {
+      "_comment": "Google Gemini. Requires: pip install google-generativeai",
+      "api_key": "",
+      "model":   "gemini-1.5-pro"
+    },
+
+    "deepseek": {
+      "_comment": "DeepSeek (OpenAI-compatible). Requires: pip install openai",
+      "api_key":  "",
+      "model":    "deepseek-chat",
+      "base_url": "https://api.deepseek.com"
+    },
+
+    "groq": {
+      "_comment": "Groq fast inference. Requires: pip install groq",
+      "api_key": "",
+      "model":   "llama-3.3-70b-versatile"
+    },
+
+    "qwen": {
+      "_comment": "Alibaba Qwen via DashScope (OpenAI-compatible). Requires: pip install openai",
+      "api_key":  "",
+      "model":    "qwen-max",
+      "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    },
+
+    "perplexity": {
+      "_comment": "Perplexity AI (OpenAI-compatible). Requires: pip install openai",
+      "api_key":  "",
+      "model":    "llama-3.1-sonar-large-128k-online",
+      "base_url": "https://api.perplexity.ai"
+    },
+
+    "mock": {
+      "_comment": "No-op mock provider for testing. No dependencies needed."
+    }
+
+  }
+}
