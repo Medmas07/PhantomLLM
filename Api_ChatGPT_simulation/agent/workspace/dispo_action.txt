@@ -1,0 +1,10 @@
+Here are the actions I can perform within this workspace:
+
+- write_file(path, content_base64): Creates a new file or overwrites an existing one.
+- append_file(path, content_base64): Adds content to the end of an existing file.
+- read_file(path): Retrieves the contents of a specific file.
+- list_files(path?, recursive?): Lists files and directories in a given location.
+- delete_file(path): Removes a specific file.
+- make_dir(path): Creates a new directory.
+- delete_dir(path): Removes a directory and all its contents.
+- replace_text(path, old, new): Searches and replaces specific text within a file.

@@ -57,7 +57,7 @@ def _print_security_warning() -> None:
 
 _PROVIDER_MENU: list[tuple[str, str]] = [
     ("openai_ui",     "ChatGPT      (chat.openai.com)  ← default (stable)"),
-    ("gemini_ui",     "Gemini       (gemini.google.com)  (pending)"),
+    ("gemini_ui",     "Gemini       (gemini.google.com)  (stable)"),
     ("meta_ui",       "Meta AI      (https://meta.ai/) (pending)"),
     ("baidu_ui",      "Baidu AI     (requires VPN) (pending)"),
     ("perplexity_ui", "Perplexity   (unstable, pending)"),
