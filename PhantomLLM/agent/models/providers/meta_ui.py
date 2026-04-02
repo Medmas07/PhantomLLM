@@ -13,9 +13,14 @@ _YEAR_2000_SELECTOR = "text=2000"
 _CONTINUE_ENABLED_SELECTOR = (
     'button[data-slot="button"]:not([disabled]):not([aria-disabled="true"])'
 )
-_INPUT_SELECTOR = 'input[placeholder*="Demandez"]'
+_INPUT_SELECTOR = (
+    'input[placeholder*="Posez"], '
+    'input[placeholder*="Demandez"], '
+    'input[placeholder*="question"], '
+    'input[placeholder*="Ask"]'
+)
 _SEND_ENABLED_SELECTOR = (
-    'button[aria-label="Envoyer"]:not([disabled]):not([aria-disabled="true"])'
+    'button[aria-label="Envoyer"][data-slot="button"]:not([disabled]):not([aria-disabled="true"])'
 )
 _RESPONSE_SELECTOR = "div.ur-markdown"
 
@@ -80,7 +85,25 @@ def _handle_age_popup(page) -> None:
 
 
 def _find_input_box(page):
-    return _first_visible(page.locator(_INPUT_SELECTOR))
+    candidates = page.locator(_INPUT_SELECTOR)
+    try:
+        count = candidates.count()
+    except Exception:
+        return None
+
+    for i in range(count):
+        item = candidates.nth(i)
+        try:
+            if not item.is_visible():
+                continue
+            if item.get_attribute("disabled") is not None:
+                continue
+            if item.get_attribute("readonly") is not None:
+                continue
+            return item
+        except Exception:
+            continue
+    return None
 
 
 def _wait_for_input_box(page, timeout: int = 20) -> object:
@@ -133,6 +156,29 @@ def _verify_input_value(input_box, expected: str) -> bool:
     return False
 
 
+def _read_input_value(input_box) -> str:
+    try:
+        return input_box.input_value(timeout=1_000) or ""
+    except Exception:
+        return ""
+
+
+def _message_send_started(page, input_box, prev_count: int, baseline_value: str) -> bool:
+    now_count = _get_response_count(page)
+    if now_count > prev_count:
+        return True
+
+    current_value = _read_input_value(input_box).strip()
+    if baseline_value.strip() and current_value != baseline_value.strip():
+        return True
+
+    # Some UIs disable send while generating.
+    if _first_visible(page.locator(_SEND_ENABLED_SELECTOR)) is None:
+        return True
+
+    return False
+
+
 def _send_prompt(page, prompt: str, *, prefer_fill: bool = False) -> None:
     _handle_age_popup(page)
     if _dialog_is_visible(page):
@@ -146,9 +192,8 @@ def _send_prompt(page, prompt: str, *, prefer_fill: bool = False) -> None:
         input_box.click(timeout=3_000)
         input_box.press("Control+A")
         input_box.press("Backspace")
-        if prefer_fill:
-            input_box.fill(prompt, timeout=10_000)
-        else:
+        input_box.fill(prompt, timeout=10_000)
+        if not prefer_fill and not _verify_input_value(input_box, prompt):
             input_box.type(prompt, delay=8, timeout=10_000)
     except Exception:
         _handle_age_popup(page)
@@ -166,16 +211,45 @@ def _send_prompt(page, prompt: str, *, prefer_fill: bool = False) -> None:
         raise RuntimeError("META_SEND_FAILED")
 
     send_button = _wait_for_enabled_send_button(page, timeout=10)
+    prev_count = _get_response_count(page)
+    baseline_value = _read_input_value(input_box)
 
     if _dialog_is_visible(page):
         _handle_age_popup(page)
         if _dialog_is_visible(page):
             raise RuntimeError("META_SEND_FAILED")
 
-    try:
-        send_button.click(timeout=5_000)
-    except Exception as exc:
-        raise RuntimeError("META_SEND_FAILED") from exc
+    # Multi-attempt submit path to avoid silent no-op clicks.
+    submit_errors: list[Exception] = []
+    submit_attempts = (
+        "click",
+        "js_click",
+        "press_enter",
+    )
+    for attempt in submit_attempts:
+        try:
+            if attempt == "click":
+                send_button.click(timeout=5_000)
+            elif attempt == "js_click":
+                handle = send_button.element_handle()
+                if handle is None:
+                    raise RuntimeError("META_SEND_FAILED")
+                page.evaluate("(el) => el.click()", handle)
+            else:
+                input_box.press("Enter", timeout=3_000)
+        except Exception as exc:
+            submit_errors.append(exc)
+            continue
+
+        deadline = time.time() + 4
+        while time.time() < deadline:
+            if _message_send_started(page, input_box, prev_count, baseline_value):
+                return
+            time.sleep(0.2)
+
+    if submit_errors:
+        raise RuntimeError("META_SEND_FAILED") from submit_errors[-1]
+    raise RuntimeError("META_SEND_FAILED")
 
 
 def _get_response_count(page) -> int:
@@ -290,5 +364,5 @@ def generate(messages: list[dict], model: str = "meta", **kwargs) -> str:
         raise ValueError("meta_ui provider requires at least one user-role message.")
 
     text = user_turns[-1].get("content", "")
-    timeout = int(kwargs.get("timeout", 60))
+    timeout = int(kwargs.get("timeout", 180))
     return _worker.send(text, model="meta_ui", timeout=timeout)
