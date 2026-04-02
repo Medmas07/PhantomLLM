@@ -49,6 +49,12 @@ PROVIDER_MAP: dict[str, str] = {
     "gemini-1.5-flash": "gemini_ui",
     "gemini-2.0-flash": "gemini_ui",
 
+    # —— Meta AI (meta.ai) ——————————————————————————————————————————————————————
+    "meta":              "meta_ui",
+    "meta_ai":           "meta_ui",
+    "meta_ui":           "meta_ui",
+    "meta-ai":           "meta_ui",
+
     # ── DeepSeek (chat.deepseek.com) ──────────────────────────────────────
     "deepseek":         "deepseek_ui",
     "deepseek_ui":      "deepseek_ui",

@@ -58,7 +58,7 @@ def _print_security_warning() -> None:
 _PROVIDER_MENU: list[tuple[str, str]] = [
     ("openai_ui",     "ChatGPT      (chat.openai.com)  ← default (stable)"),
     ("gemini_ui",     "Gemini       (gemini.google.com)  (stable)"),
-    ("meta_ui",       "Meta AI      (https://meta.ai/) (pending)"),
+    ("meta_ui",       "Meta AI      (https://meta.ai/)"),
     ("baidu_ui",      "Baidu AI     (requires VPN) (pending)"),
     ("perplexity_ui", "Perplexity   (unstable, pending)"),
     ("claude_ui",     "Claude       (coming soon)"),
@@ -73,6 +73,7 @@ _PROVIDER_MENU: list[tuple[str, str]] = [
 _BROWSER_MODELS: frozenset[str] = frozenset({
     "openai_ui",
     "gemini_ui",     # NEXT FOCUS: stabilize gemini_ui
+    "meta_ui",
     "perplexity_ui",
     "claude_ui",
     "deepseek_ui",
@@ -82,7 +83,6 @@ _BROWSER_MODELS: frozenset[str] = frozenset({
 
 # Providers that have no implementation yet — fail fast with a clear message.
 _UNIMPLEMENTED_PROVIDERS: frozenset[str] = frozenset({
-    "meta_ui",
     "baidu_ui",
 })
 

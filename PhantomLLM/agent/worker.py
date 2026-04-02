@@ -205,6 +205,7 @@ def _build_provider_class_map() -> dict:
     circular-import issues at module load time.
     """
     from agent.models.providers.openai_ui    import OpenAIUIBrowser
+    from agent.models.providers.meta_ui      import MetaUIBrowser
     from agent.models.providers.claude_ui    import ClaudeUIBrowser
     from agent.models.providers.gemini_ui    import GeminiUIBrowser
     from agent.models.providers.deepseek_ui  import DeepSeekUIBrowser
@@ -214,6 +215,7 @@ def _build_provider_class_map() -> dict:
 
     return {
         "openai_ui":     OpenAIUIBrowser,
+        "meta_ui":       MetaUIBrowser,
         "claude_ui":     ClaudeUIBrowser,
         "gemini_ui":     GeminiUIBrowser,
         "deepseek_ui":   DeepSeekUIBrowser,
