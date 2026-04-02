@@ -1,4 +1,0 @@
-n8n is an open-source workflow automation tool that allows you to connect different apps and services.
- It lets you automate tasks by creating workflows, where each step (called a node) performs a specific action.
- For example, you can use n8n to automatically save email attachments, send messages,
-  or sync data between applications. It is flexible, extensible, and can be run on your own server.
