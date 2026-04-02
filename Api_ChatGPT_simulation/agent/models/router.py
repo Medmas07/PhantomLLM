@@ -1,19 +1,17 @@
 """
-router.py – Model dispatcher.
+router.py – Model dispatcher (browser-only edition).
 
-Maps a model name (or alias) to the correct provider module and
-calls its generate() function with a unified signature:
+ALL models are accessed via Playwright browser automation.
+No API keys or network SDK calls are made by this router.
 
-    generate(model: str, messages: list[dict], **kwargs) -> str
+Mapping convention
+──────────────────
+Each entry maps a user-facing model name or alias → provider module name.
+The module name must match a file in agent/models/providers/.
+That module must expose a generate(messages, model, **kwargs) -> str function.
 
-Resolution order:
-    1. Exact match in PROVIDER_MAP
-    2. Fallback to cfg.default_model
-    3. Hard fallback to "openai_ui" if default_model is also unknown
-
-Provider modules are imported lazily (only when first called) so that
-optional SDK packages (anthropic, google-generativeai, groq, etc.) are not
-imported at startup unless actually used.
+Provider modules in turn call worker.send(text, model=<key>, ...) where
+<key> maps to a BaseUIProvider subclass inside the worker's provider registry.
 """
 
 from importlib import import_module
@@ -23,88 +21,78 @@ from agent.config.settings import cfg
 
 
 # ── Provider map ──────────────────────────────────────────────────────────────
-# Maps every accepted model name / alias → provider module name.
-# Module names must match files in agent/models/providers/.
+# Format:  "<user-facing name>" → "<module name under agent/models/providers/>"
 
 PROVIDER_MAP: dict[str, str] = {
 
-    # ── Browser automation (ChatGPT via Playwright) ───────────────────────
+    # ── ChatGPT (chat.openai.com) ─────────────────────────────────────────
     "openai_ui":      "openai_ui",
     "chatgpt":        "openai_ui",
     "gpt-4":          "openai_ui",
     "gpt-4o":         "openai_ui",
     "gpt-3.5-turbo":  "openai_ui",
 
-    # ── Anthropic Claude ──────────────────────────────────────────────────
-    "claude":             "claude_api",
-    "claude-opus-4-6":    "claude_api",
-    "claude-sonnet-4-6":  "claude_api",
-    "claude-haiku-4-5":   "claude_api",
-    "claude-3-5-sonnet":  "claude_api",
-    "claude-3-opus":      "claude_api",
-    "claude-3-sonnet":    "claude_api",
-    "claude-3-haiku":     "claude_api",
+    # ── Claude (claude.ai) ────────────────────────────────────────────────
+    "claude":             "claude_ui",
+    "claude_ui":          "claude_ui",
+    "claude-opus-4-6":    "claude_ui",
+    "claude-sonnet-4-6":  "claude_ui",
+    "claude-haiku-4-5":   "claude_ui",
+    "claude-3-5-sonnet":  "claude_ui",
+    "claude-3-opus":      "claude_ui",
 
-    # ── Google Gemini ─────────────────────────────────────────────────────
-    "gemini":             "gemini_api",
-    "gemini-pro":         "gemini_api",
-    "gemini-1.5-pro":     "gemini_api",
-    "gemini-1.5-flash":   "gemini_api",
-    "gemini-2.0-flash":   "gemini_api",
+    # ── Gemini (gemini.google.com) ────────────────────────────────────────
+    "gemini":           "gemini_ui",
+    "gemini_ui":        "gemini_ui",
+    "gemini-pro":       "gemini_ui",
+    "gemini-1.5-pro":   "gemini_ui",
+    "gemini-1.5-flash": "gemini_ui",
+    "gemini-2.0-flash": "gemini_ui",
 
-    # ── DeepSeek ──────────────────────────────────────────────────────────
-    "deepseek":           "deepseek_api",
-    "deepseek-chat":      "deepseek_api",
-    "deepseek-coder":     "deepseek_api",
-    "deepseek-reasoner":  "deepseek_api",
+    # ── DeepSeek (chat.deepseek.com) ──────────────────────────────────────
+    "deepseek":         "deepseek_ui",
+    "deepseek_ui":      "deepseek_ui",
+    "deepseek-chat":    "deepseek_ui",
+    "deepseek-coder":   "deepseek_ui",
 
-    # ── Groq (fast open-source inference) ────────────────────────────────
-    "groq":                      "groq_api",
-    "llama-3.3-70b-versatile":   "groq_api",
-    "llama-3.1-8b-instant":      "groq_api",
-    "llama-3.1-70b-versatile":   "groq_api",
-    "mixtral-8x7b-32768":        "groq_api",
-    "gemma2-9b-it":               "groq_api",
+    # ── Grok / xAI (grok.com) ─────────────────────────────────────────────
+    # NOTE: "grok" = xAI chatbot.  "groq" (old inference platform) is disabled.
+    "grok":     "grok_ui",
+    "grok_ui":  "grok_ui",
+    "xai":      "grok_ui",
 
-    # ── Alibaba Qwen ──────────────────────────────────────────────────────
-    "qwen":        "qwen_api",
-    "qwen-max":    "qwen_api",
-    "qwen-plus":   "qwen_api",
-    "qwen-turbo":  "qwen_api",
-    "qwen-long":   "qwen_api",
+    # ── Qwen (chat.qwen.ai) ───────────────────────────────────────────────
+    "qwen":       "qwen_ui",
+    "qwen_ui":    "qwen_ui",
+    "qwen-max":   "qwen_ui",
+    "qwen-plus":  "qwen_ui",
+    "qwen-turbo": "qwen_ui",
 
-    # ── Perplexity ────────────────────────────────────────────────────────
-    "perplexity":                              "perplexity_api",
-    "llama-3.1-sonar-large-128k-online":       "perplexity_api",
-    "llama-3.1-sonar-small-128k-online":       "perplexity_api",
-    "llama-3.1-sonar-huge-128k-online":        "perplexity_api",
+    # ── Perplexity (perplexity.ai) ────────────────────────────────────────
+    "perplexity":    "perplexity_ui",
+    "perplexity_ui": "perplexity_ui",
 
-    # ── Mock (testing / CI) ───────────────────────────────────────────────
-    "mock":  "mock",
+    # ── Mock (testing / CI — no browser needed) ───────────────────────────
+    "mock": "mock",
 }
 
 
-# ── Provider loader (lazy) ────────────────────────────────────────────────────
+# ── Lazy provider loader ──────────────────────────────────────────────────────
 
 def _load_provider(module_name: str) -> Callable:
     """
-    Dynamically import agent.models.providers.<module_name> and return
-    its generate() callable.
+    Import agent.models.providers.<module_name> and return its generate().
 
-    Args:
-        module_name: Short name matching a file in agent/models/providers/.
-
-    Raises:
-        ValueError if the module does not exist.
-        AttributeError if the module does not expose generate().
+    Raises ValueError if the module does not exist.
+    Raises AttributeError if the module does not expose generate().
     """
     full_path = f"agent.models.providers.{module_name}"
     try:
         mod = import_module(full_path)
     except ModuleNotFoundError:
         raise ValueError(
-            f"No provider module found for: {module_name!r}. "
-            f"Expected file: agent/models/providers/{module_name}.py"
+            f"No provider module found: {module_name!r}. "
+            f"Expected: agent/models/providers/{module_name}.py"
         )
     if not hasattr(mod, "generate"):
         raise AttributeError(
@@ -113,44 +101,30 @@ def _load_provider(module_name: str) -> Callable:
     return mod.generate
 
 
-# ── Public API ────────────────────────────────────────────────────────────────
+# ── Public dispatch function ──────────────────────────────────────────────────
 
 def generate(model: str, messages: list[dict], **kwargs) -> str:
     """
-    Dispatch a generation request to the correct provider.
+    Dispatch a generation request to the correct browser UI provider.
 
     Args:
-        model:    Model identifier or alias (e.g. "claude", "gpt-4", "groq").
-                  Must be a key in PROVIDER_MAP, or will fall back to the
-                  default_model from config.json.
-        messages: OpenAI-style message list:
-                  [{"role": "user", "content": "..."}, ...]
-        **kwargs: Forwarded to the provider (timeout, temperature, max_tokens…).
+        model:    Model name or alias (e.g. "claude", "gpt-4", "gemini").
+                  Unknown models fall back to cfg.default_model, then "openai_ui".
+        messages: OpenAI-style message list [{"role": "user", "content": "..."}].
+        **kwargs: Forwarded to the provider (timeout, temperature, …).
 
     Returns:
         The assistant's text response as a plain string.
-
-    Raises:
-        ValueError   if the resolved provider module is missing.
-        RuntimeError propagated from the provider on API/browser errors.
     """
-    # ── Resolve provider module name ──────────────────────────────────────
     provider_name: str | None = PROVIDER_MAP.get(model)
 
     if provider_name is None:
-        # Unknown model → try default from config
         fallback = cfg.default_model
-        provider_name = PROVIDER_MAP.get(fallback)
-
-        if provider_name is None:
-            # Last resort: hardwired safe fallback
-            provider_name = "openai_ui"
-
+        provider_name = PROVIDER_MAP.get(fallback, "openai_ui")
         print(
             f"⚠️  Unknown model {model!r} – "
             f"falling back to {fallback!r} → {provider_name}"
         )
 
-    # ── Lazy-load and call ────────────────────────────────────────────────
     fn = _load_provider(provider_name)
     return fn(messages=messages, model=model, **kwargs)

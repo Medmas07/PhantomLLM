@@ -1,41 +1,31 @@
 """
-worker.py – Playwright browser worker thread.
+worker.py – Multi-tab Playwright browser worker thread.
 
-NON-NEGOTIABLE RULES
-─────────────────────
-1. Playwright MUST run in a single dedicated thread (_playwright_worker).
+NON-NEGOTIABLE RULES (unchanged from v1)
+─────────────────────────────────────────
+1. Playwright runs ONLY in this module, in a single dedicated thread.
 2. No Playwright import or call is allowed outside this module.
-3. All communication with the outside world goes through the module-level
-   queues (_request_queue / _response_queue).
+3. All communication goes through _request_queue / _response_queue.
 
-Architecture
-────────────
-External code (providers, API handlers, CLI) calls send() which:
-    a) Enqueues a (request_id, payload) tuple on _request_queue
-    b) Blocks waiting for the matching result on _response_queue
+New in v2: Multi-tab management
+────────────────────────────────
+One browser context is shared across all providers.
+Each provider gets its own tab (Page) opened lazily on first use.
 
-The worker thread:
-    a) Reads from _request_queue
-    b) Types the message into the ChatGPT browser textarea
-    c) Waits for the model to finish streaming
-    d) If the response contains an <ACTION> block → executes the tools
-       and sends TOOL_RESULT back to ChatGPT
-    e) Puts the final result on _response_queue
+    _tabs = {
+        "openai_ui":    <Page: chat.openai.com>,
+        "claude_ui":    <Page: claude.ai>,
+        "gemini_ui":    <Page: gemini.google.com>,
+        ...
+    }
 
-Public API
-──────────
-    start()        – Launch the thread (blocks until browser is ready)
-    is_ready()     – True once browser is initialised
-    get_error()    – Last crash message, or None
-    get_status()   – Dict snapshot for the /status endpoint
-    send(text, timeout) – Blocking request, returns response text
+The worker routes each request to the correct provider class (BaseUIProvider
+subclass) and calls its send_message() / wait_for_response() methods.
 
-Extensibility note (requirement 8)
-────────────────────────────────────
-The textarea interaction is localised in _ui_send_message().
-The selector is NOT hardcoded elsewhere.
-A future browser-extension layer can replace this function with a call to
-utils.detect_active_textarea() without touching the rest of the module.
+send() API change (v2)
+──────────────────────
+Old: send(text, timeout)
+New: send(text, model, timeout)   ← model selects the provider tab
 """
 
 import random
@@ -44,88 +34,131 @@ import time
 from queue import Empty, Queue
 
 
-# ── Module-level state (private) ──────────────────────────────────────────────
+# ── Module-level state ────────────────────────────────────────────────────────
 
 _request_queue:  "Queue[tuple[str, dict]]" = Queue()
 _response_queue: "Queue[dict]"             = Queue()
 
-_browser_ready:        bool      = False
-_system_context_sent:  bool      = False
-_worker_error:         str|None  = None
-_worker_thread:        threading.Thread|None = None
+_browser_ready: bool      = False
+_worker_error:  str|None  = None
+_worker_thread: threading.Thread|None = None
+
+# These are owned exclusively by the worker thread; no other thread touches them.
+_context              = None   # Playwright BrowserContext
+_tabs:                dict     = {}   # provider_key → Page
+_system_context_sent: dict     = {}   # provider_key → bool
+_provider_instances:  dict     = {}   # provider_key → BaseUIProvider instance
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def is_ready() -> bool:
-    """Return True once the browser is open and SYSTEM_CONTEXT has been sent."""
+    """True once the browser context is open and accepting requests."""
     return _browser_ready
 
 
 def get_error() -> str | None:
-    """Return the crash message if the worker has failed, else None."""
+    """The crash message if the worker has died, otherwise None."""
     return _worker_error
 
 
 def get_status() -> dict:
-    """Return a status snapshot suitable for the /status HTTP endpoint."""
+    """Status snapshot for the /status HTTP endpoint."""
     return {
-        "browser_ready":       _browser_ready,
-        "system_context_sent": _system_context_sent,
-        "worker_error":        _worker_error,
+        "browser_ready":  _browser_ready,
+        "worker_error":   _worker_error,
+        "open_tabs":      list(_tabs.keys()),
+        "system_context": {k: v for k, v in _system_context_sent.items()},
     }
 
 
-def send(text: str, timeout: int = 180) -> str:
+def send(text: str, model: str = "openai_ui", timeout: int = 180) -> str:
     """
-    Send a message to the ChatGPT browser and block until a response arrives.
+    Send a message to the browser worker and block until a response arrives.
 
-    This function is thread-safe and can be called from multiple threads
-    simultaneously (e.g. concurrent API requests).  Responses are matched
-    to callers by a unique request ID so they cannot be mis-delivered.
+    Thread-safe. Multiple API handlers can call this concurrently; the worker
+    processes requests serially (one browser tab at a time) and responses are
+    matched back to callers by a unique request ID.
 
     Args:
-        text:    The user message to send.
-        timeout: Maximum seconds to wait for the response.
+        text:    User message to send.
+        model:   Provider key (e.g. "openai_ui", "claude_ui", "gemini_ui").
+        timeout: Max seconds to wait.
 
     Returns:
-        The assistant's final text (after any tool calls have been resolved).
+        The assistant's final text after any tool calls are resolved.
 
     Raises:
         RuntimeError: Worker crashed or browser not ready.
-        TimeoutError: No response within `timeout` seconds.
+        TimeoutError: No response within timeout.
     """
     if _worker_error:
         raise RuntimeError(f"Playwright worker error: {_worker_error}")
     if not _browser_ready:
         raise RuntimeError("Playwright browser is not ready yet.")
 
-    # Unique ID so concurrent callers can match their response
     req_id = f"req-{int(time.time() * 1000)}-{random.randint(1000, 9999)}"
-
-    _request_queue.put((req_id, {"text": text, "timeout": timeout}))
+    _request_queue.put((req_id, {"text": text, "model": model, "timeout": timeout}))
 
     deadline = time.time() + timeout
 
     while time.time() < deadline:
         try:
             result = _response_queue.get(timeout=0.5)
-
             if result.get("id") == req_id:
-                # This is our response
                 if result.get("ok"):
                     return result.get("response", "")
                 raise RuntimeError(result.get("error", "Unknown worker error"))
             else:
-                # Belongs to another concurrent caller – put it back
+                # Belongs to another concurrent caller; put it back
                 _response_queue.put(result)
                 time.sleep(0.01)
-
         except Empty:
-            pass  # Keep waiting
+            pass
 
     raise TimeoutError(
-        f"Playwright worker did not respond within {timeout} seconds."
+        f"Playwright worker did not respond within {timeout} seconds "
+        f"(model={model!r})."
+    )
+
+
+def preload(model: str, timeout: int = 120) -> None:
+    """
+    Open the browser tab for `model` and inject the system prompt immediately.
+
+    Called right after start() so the tab is ready before the user types
+    their first message. Sends a special "preload" request through the
+    normal queue; the worker handles it by doing tab-init + system-context
+    injection and then returns without waiting for a chat response.
+
+    Raises RuntimeError if the worker is not running or preload fails.
+    Raises TimeoutError if the tab/login takes longer than `timeout` seconds.
+    """
+    if _worker_error:
+        raise RuntimeError(f"Playwright worker error: {_worker_error}")
+    if not _browser_ready:
+        raise RuntimeError("Playwright browser is not ready yet.")
+
+    req_id = f"preload-{int(time.time() * 1000)}-{random.randint(1000, 9999)}"
+    _request_queue.put((req_id, {"type": "preload", "model": model, "timeout": timeout}))
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            result = _response_queue.get(timeout=0.5)
+            if result.get("id") == req_id:
+                if result.get("ok"):
+                    return
+                raise RuntimeError(result.get("error", "Preload failed"))
+            else:
+                _response_queue.put(result)
+                time.sleep(0.01)
+        except Empty:
+            pass
+
+    raise TimeoutError(
+        f"Preload timed out after {timeout}s (model={model!r}). "
+        "If login is required, increase the timeout or log in manually."
     )
 
 
@@ -133,205 +166,155 @@ def start() -> None:
     """
     Launch the Playwright worker thread and block until the browser is ready.
 
-    Idempotent: calling start() when the thread is already alive is a no-op.
+    In v2 "ready" means the browser context is open — individual provider tabs
+    are initialised lazily on first use, so startup is instant.
 
-    Raises:
-        RuntimeError: If the worker fails to initialise within 120 seconds.
+    Idempotent: calling start() when the thread is already alive is a no-op.
+    Raises RuntimeError on startup failure (e.g. Chrome not found).
     """
     global _worker_thread
 
     if _worker_thread and _worker_thread.is_alive():
-        return  # Already running
+        return
 
     _worker_thread = threading.Thread(
         target=_playwright_worker,
         name="playwright-worker",
-        daemon=True,   # Exits automatically when the main process exits
+        daemon=True,
     )
     _worker_thread.start()
 
-    # Block until ready or error
     deadline = time.time() + 120
     while time.time() < deadline:
         if _browser_ready:
             return
         if _worker_error:
-            raise RuntimeError(
-                f"Playwright worker failed to start: {_worker_error}"
-            )
+            raise RuntimeError(f"Worker failed to start: {_worker_error}")
         time.sleep(0.2)
 
-    raise RuntimeError(
-        "Timed out waiting for the Playwright browser to start (120s)."
+    raise RuntimeError("Timed out waiting for the Playwright browser (120 s).")
+
+
+# ── Private: provider registry ────────────────────────────────────────────────
+
+def _build_provider_class_map() -> dict:
+    """
+    Import all UI provider classes and return a key → class mapping.
+
+    Called INSIDE the worker thread (after playwright imports) to avoid
+    circular-import issues at module load time.
+    """
+    from agent.models.providers.openai_ui    import OpenAIUIBrowser
+    from agent.models.providers.claude_ui    import ClaudeUIBrowser
+    from agent.models.providers.gemini_ui    import GeminiUIBrowser
+    from agent.models.providers.deepseek_ui  import DeepSeekUIBrowser
+    from agent.models.providers.grok_ui      import GrokUIBrowser
+    from agent.models.providers.qwen_ui      import QwenUIBrowser
+    from agent.models.providers.perplexity_ui import PerplexityUIBrowser
+
+    return {
+        "openai_ui":     OpenAIUIBrowser,
+        "claude_ui":     ClaudeUIBrowser,
+        "gemini_ui":     GeminiUIBrowser,
+        "deepseek_ui":   DeepSeekUIBrowser,
+        "grok_ui":       GrokUIBrowser,
+        "qwen_ui":       QwenUIBrowser,
+        "perplexity_ui": PerplexityUIBrowser,
+    }
+
+
+# ── Private: tab helpers ──────────────────────────────────────────────────────
+
+def _get_or_create_tab(context, provider_key: str, provider) -> "Page":
+    """
+    Return the existing Page for provider_key, or create a new tab.
+
+    A new tab is also created when the existing one has been closed
+    (e.g. user accidentally closed it in the browser).
+    """
+    existing = _tabs.get(provider_key)
+    if existing is not None and not existing.is_closed():
+        return existing
+
+    # New tab
+    page = context.new_page()
+    # Hide webdriver fingerprint
+    page.add_init_script(
+        "Object.defineProperty(navigator, 'webdriver', { get: () => undefined });"
     )
+    # Navigate to provider URL
+    print(f"🆕 Opening new tab for: {provider_key} → {provider.URL}")
+    page.goto(provider.URL, timeout=60_000)
+
+    _tabs[provider_key] = page
+    _system_context_sent[provider_key] = False   # fresh tab = needs system context
+    return page
 
 
-# ── Private: textarea interaction ──────────────────────────────────────────────
-# Localised here so a future browser-extension layer only needs to replace
-# this single function (see utils.detect_active_textarea stub).
-
-def _ui_send_message(page, msg: str) -> None:
-    """
-    Type `msg` into the ChatGPT composer textarea and submit it.
-
-    Implementation notes:
-    - We inject via JavaScript instead of keyboard simulation to correctly
-      handle multiline content and avoid timing issues with the React state.
-    - page.wait_for_timeout() is used instead of time.sleep() wherever
-      possible so Playwright can service its internal event loop.
-    - The CSS selector is kept here and ONLY here (not spread across the file).
-    """
-    # Selector for ChatGPT's ProseMirror composer (as of 2025)
-    TEXTAREA_SELECTOR = 'div.ProseMirror#prompt-textarea[contenteditable="true"]'
-
-    box = page.locator(TEXTAREA_SELECTOR)
-    box.wait_for(state="visible", timeout=60_000)
-    box.click(force=True)
-    page.wait_for_timeout(100)          # Let React register focus
-
-    # Clear any existing draft
-    box.press("Control+A")
-    box.press("Backspace")
-
-    # Inject text via JS – handles newlines and special characters correctly
-    page.evaluate(
-        """(text) => {
-            const el = document.querySelector(
-                'div.ProseMirror#prompt-textarea'
-            );
-            if (!el) return;
-            el.focus();
-            el.innerText = text;
-            el.dispatchEvent(new Event('input', { bubbles: true }));
-        }""",
-        msg,
-    )
-
-    page.wait_for_timeout(100)          # Let React process the input event
-    box.press("Enter")
-
-
-# ── Private: response polling ─────────────────────────────────────────────────
-
-def _wait_for_response(page, prev_count: int, timeout: int = 180) -> str:
-    """
-    Poll the assistant message list until a new stable response appears.
-
-    Stability criterion: STABLE_ROUNDS consecutive polls return identical
-    non-empty text AND any open <ACTION> tag has a matching </ACTION> close.
-
-    Args:
-        page:       Playwright Page object.
-        prev_count: Number of assistant messages before the current prompt.
-        timeout:    Max seconds to wait.
-
-    Returns:
-        The complete assistant response text, or "" on timeout.
-    """
-    POLL_MS      = 250   # milliseconds between polls
-    STABLE_ROUNDS = 4    # how many identical snapshots = "done streaming"
-
-    ASSISTANT_SELECTOR = 'div[data-message-author-role="assistant"]'
-    items = page.locator(ASSISTANT_SELECTOR)
-
-    start = time.time()
-
-    # ── Phase 1: Wait for a new assistant message to appear ───────────────
-    while items.count() <= prev_count:
-        if time.time() - start > timeout:
-            print("⚠️  Timeout: no new assistant message detected.")
-            return ""
-        page.wait_for_timeout(POLL_MS)
-
-    # ── Phase 2: Wait for streaming to finish ─────────────────────────────
-    last_snapshot = ""
-    stable = 0
-
-    while True:
-        count = items.count()
-        parts = [
-            items.nth(i).inner_text().strip()
-            for i in range(prev_count, count)
-        ]
-        text = "\n\n".join(p for p in parts if p)
-
-        if "<ACTION>" in text and "</ACTION>" not in text:
-            # Model is mid-stream on an ACTION block – reset stability counter
-            stable = 0
-        elif text == last_snapshot and text:
-            stable += 1
-        else:
-            stable = 0
-
-        last_snapshot = text
-
-        if stable >= STABLE_ROUNDS:
-            break
-
-        if time.time() - start > timeout:
-            print("⚠️  Timeout: response did not stabilise within limit.")
-            break
-
-        page.wait_for_timeout(POLL_MS)
-
-    # Printing is the caller's responsibility (cli.py / api_server.py).
-    # The worker is a background thread — it must not write to stdout here,
-    # otherwise every response would appear twice in CLI mode.
-    return text
-
-
-# ── Worker thread entry-point ──────────────────────────────────────────────────
+# ── Worker thread entry-point ─────────────────────────────────────────────────
 
 def _playwright_worker() -> None:
     """
     Main body of the Playwright worker thread.
 
-    Lifecycle:
-        1. Start Playwright + launch persistent Chrome context
-        2. Navigate to ChatGPT, wait for Cloudflare / login
-        3. Inject SYSTEM_CONTEXT once
-        4. Loop: read _request_queue → send to ChatGPT → handle ACTION →
-                 write result to _response_queue
+    Startup:
+        1. Import provider classes (lazy, inside this thread)
+        2. Start Playwright + launch persistent Chrome context
+        3. Set _browser_ready = True  (tabs open lazily on first request)
 
-    All imports are done inside this function so they only happen on the
-    worker thread, which is required for Playwright's sync API to work
-    correctly (Playwright sync API is NOT thread-safe across threads).
+    Request loop:
+        For each (req_id, payload) from _request_queue:
+          a. Resolve provider class from payload["model"]
+          b. Get or create the provider's tab
+          c. ensure_loaded() — navigates if needed, waits for manual login
+          d. Inject SYSTEM_CONTEXT once per provider per session
+          e. send_message() + wait_for_response()
+          f. Handle ACTION blocks (file tools)
+          g. Put result on _response_queue
     """
-    global _browser_ready, _system_context_sent, _worker_error
+    global _browser_ready, _worker_error
 
-    # Lazy imports (must run in the worker thread)
+    # ── Lazy imports (must run in this thread for Playwright sync API) ────
     try:
         from agent.config.settings import cfg
         from agent.protocol.system_prompt import get_browser_system_prompt
         from agent.protocol.action_parser import try_extract_action
         from agent.tools.file_tools import execute_actions
+        from agent.models.providers.base_ui import SelectorAmbiguityError
         from playwright.sync_api import sync_playwright
     except Exception as exc:
         _worker_error = f"Import error in worker thread: {exc}"
+        return
+
+    # ── Build provider → class map ────────────────────────────────────────
+    try:
+        provider_class_map = _build_provider_class_map()
+    except Exception as exc:
+        _worker_error = f"Failed to build provider map: {exc}"
         return
 
     playwright = None
     context    = None
 
     try:
-        prov       = cfg.provider("openai_ui")
-        profile_dir = prov.get(
+        # ── Start Playwright + Chrome ─────────────────────────────────────
+        prov_cfg    = cfg.provider("openai_ui")   # Chrome config lives here
+        profile_dir = prov_cfg.get(
             "profile_dir",
             r"C:\Users\medte\AppData\Local\PlaywrightProfile",
         )
-        exe_path   = prov.get(
+        exe_path = prov_cfg.get(
             "executable_path",
             r"C:\Program Files\Google\Chrome\Application\chrome.exe",
         )
-        chatgpt_url = prov.get("chatgpt_url", "https://chat.openai.com")
 
-        print("🚀 Starting Playwright browser (worker thread)…")
+        print("🚀 Starting Playwright browser context (multi-tab mode)…")
         playwright = sync_playwright().start()
 
         context = playwright.chromium.launch_persistent_context(
             user_data_dir=profile_dir,
             executable_path=exe_path,
-            headless=cfg.headless,   # Controlled by config.json
+            headless=cfg.headless,
             slow_mo=100,
             args=[
                 "--disable-blink-features=AutomationControlled",
@@ -341,82 +324,102 @@ def _playwright_worker() -> None:
             ],
         )
 
-        page = context.new_page()
-
-        # Hide the webdriver flag to reduce bot-detection risk
-        page.add_init_script(
-            "Object.defineProperty(navigator, 'webdriver', { get: () => undefined });"
-        )
-
-        page.goto(chatgpt_url, timeout=60_000)
-
-        # Allow time for Cloudflare challenge / manual login if needed
-        print("⏳ Waiting for Cloudflare / login (20 s)…")
-        page.wait_for_timeout(20_000)
-
-        # Wait for the composer to be ready
-        page.wait_for_selector(
-            'div.ProseMirror#prompt-textarea[contenteditable="true"]',
-            timeout=60_000,
-        )
-
-        # ── Inject system context once per session ────────────────────────
-        # Pick the prompt that matches the current run mode so the persona
-        # text ("CLI tool" vs "API server tool") is always accurate.
-        system_ctx = get_browser_system_prompt(cfg.mode)
-        prev = page.locator('div[data-message-author-role="assistant"]').count()
-        print(f"📨 Sending SYSTEM_CONTEXT [{cfg.mode} mode]…")
-        _ui_send_message(page, system_ctx)
-
-        # ChatGPT may or may not reply to the system context – either is fine
-        try:
-            _wait_for_response(page, prev, timeout=60)
-        except Exception:
-            pass
-
-        _system_context_sent = True
-        _browser_ready       = True
-        print("✅ Browser ready. SYSTEM_CONTEXT injected. Waiting for requests…")
+        # Browser is ready; tabs open lazily on first request
+        _browser_ready = True
+        print("✅ Browser context ready. Provider tabs will open on first use.")
 
         # ── Main request loop ─────────────────────────────────────────────
         while True:
-            # Blocking wait for the next API / CLI request
-            req_id, payload = _request_queue.get()
-            msg     = payload["text"]
-            timeout = int(payload.get("timeout", 180))
+            req_id, payload = _request_queue.get()   # blocks
+            req_type = payload.get("type", "chat")   # "chat" | "preload"
+            model    = payload.get("model", "openai_ui")
+            timeout  = int(payload.get("timeout", 180))
 
             try:
-                prev_count = page.locator(
-                    'div[data-message-author-role="assistant"]'
-                ).count()
+                # ── Resolve provider ──────────────────────────────────────
+                if model not in provider_class_map:
+                    raise ValueError(
+                        f"Unknown provider key: {model!r}. "
+                        f"Available: {sorted(provider_class_map)}"
+                    )
 
-                _ui_send_message(page, msg)
-                response = _wait_for_response(page, prev_count, timeout=timeout)
+                # Lazy-instantiate provider (one instance per key)
+                if model not in _provider_instances:
+                    _provider_instances[model] = provider_class_map[model]()
+                provider = _provider_instances[model]
 
-                # ── ACTION handling ───────────────────────────────────────
-                action      = try_extract_action(response)
-                tool_result = None
+                # ── Get or create tab ─────────────────────────────────────
+                page = _get_or_create_tab(context, model, provider)
+
+                # ── Ensure page is loaded + user is logged in ─────────────
+                provider.ensure_loaded(page)
+
+                # ── Inject system context once per provider per session ───
+                if not _system_context_sent.get(model, False):
+                    system_ctx = get_browser_system_prompt(cfg.mode)
+                    prev_init  = provider.get_response_count(page)
+                    print(
+                        f"📨 Injecting SYSTEM_CONTEXT for {model} "
+                        f"[{cfg.mode} mode]…"
+                    )
+                    provider.send_message(page, system_ctx)
+                    # Soft wait — model response to system context is optional
+                    try:
+                        provider.wait_for_response(page, prev_init, timeout=60)
+                    except Exception:
+                        pass
+                    _system_context_sent[model] = True
+                    print(f"✅ {model}: SYSTEM_CONTEXT injected.")
+
+                # ── Preload request: tab + system context only, no chat ───
+                if req_type == "preload":
+                    _response_queue.put({
+                        "ok":          True,
+                        "id":          req_id,
+                        "response":    "",
+                        "tool_result": None,
+                    })
+                    continue
+
+                # ── Send the actual user message ──────────────────────────
+                text       = payload["text"]
+                prev_count = provider.get_response_count(page)
+                provider.send_message(page, text)
+                response   = provider.wait_for_response(page, prev_count, timeout)
+
+                # ── ACTION / tool handling ────────────────────────────────
+                action         = try_extract_action(response)
+                tool_result    = None
+                final_response = response   # default: first response
 
                 if action:
                     tool_result = execute_actions(action)
 
-                    # Send the tool output back to the model
-                    prev2 = page.locator(
-                        'div[data-message-author-role="assistant"]'
-                    ).count()
-                    _ui_send_message(page, f"TOOL_RESULT:\n{tool_result}")
-
-                    # Wait for acknowledgement (soft timeout – don't fail request)
+                    # Send tool output back to model and capture its final reply
+                    prev2 = provider.get_response_count(page)
+                    provider.send_message(page, f"TOOL_RESULT:\n{tool_result}")
                     try:
-                        _wait_for_response(page, prev2, timeout=timeout)
+                        final_response = provider.wait_for_response(
+                            page, prev2, timeout=timeout
+                        )
                     except Exception:
-                        pass
+                        final_response = response   # fallback to first response
 
                 _response_queue.put({
                     "ok":          True,
                     "id":          req_id,
-                    "response":    response,
+                    "response":    final_response,
                     "tool_result": tool_result,
+                })
+
+            except SelectorAmbiguityError as exc:
+                # Print the full HTML-inspection guidance to stdout,
+                # then return it as an error response to the caller.
+                print(str(exc))
+                _response_queue.put({
+                    "ok":    False,
+                    "id":    req_id,
+                    "error": str(exc),
                 })
 
             except Exception as exc:
@@ -432,7 +435,6 @@ def _playwright_worker() -> None:
         print(f"💥 {_worker_error}")
 
     finally:
-        # Best-effort cleanup – keep going even if one close() fails
         for obj, method in [(context, "close"), (playwright, "stop")]:
             if obj is not None:
                 try:

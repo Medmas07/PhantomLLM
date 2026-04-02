@@ -1,0 +1,3 @@
+# Fullstack App
+
+Basic structure.

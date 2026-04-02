@@ -20,6 +20,20 @@ _ACTION_PATTERN = re.compile(
 )
 
 
+def strip_actions(text: str) -> str:
+    """
+    Remove all <ACTION>…</ACTION> blocks from a model response.
+
+    Used by the CLI to display clean human-readable text without
+    exposing raw JSON tool-call payloads to the user.
+    """
+    cleaned = _ACTION_PATTERN.sub("", text)
+    # Collapse multiple blank lines left behind by the removal
+    import re
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
+
 def try_extract_action(text: str) -> dict | None:
     """
     Scan a model response for the first valid ACTION block.

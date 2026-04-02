@@ -1,0 +1,1 @@
+On March 31, 2026, Anthropic accidentally leaked the source code of Claude Code due to a packaging error. About 500,000 lines of code were exposed through a source map file, but no user data was compromised.

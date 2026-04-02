@@ -1,16 +1,20 @@
 """
-main.py – Unified entrypoint for the multi-provider LLM agent.
+main.py – Unified entrypoint for the multi-provider browser-automation agent.
 
-Run as a module from the project root:
-    python -m agent.main            ← interactive mode + model selection (default)
-    python -m agent.main --cli      ← skip prompt, go straight to CLI
-    python -m agent.main --api      ← skip prompt, go straight to API server
-    python -m agent.main --cli --model claude   ← CLI forced to Claude
+Run modes
+─────────
+    python -m agent.main            ← interactive mode + model selection
+    python -m agent.main --cli      ← skip prompt, direct CLI
+    python -m agent.main --api      ← skip prompt, direct API server
+    python -m agent.main --cli --model claude
 
-Prompt behaviour (when no --cli / --api flag is given):
-    1. Ask: "Select mode:  1. CLI  2. API"
-    2. Ask: "Select model: 1. openai_ui  2. claude  ..."
-    config.json values are shown as defaults/suggestions, never auto-selected.
+Startup sequence
+────────────────
+    1. Print security warning  (MANDATORY — printed before any browser launch)
+    2. Prompt for mode         (unless --cli / --api flag given)
+    3. Prompt for model        (unless --model flag given)
+    4. Start Playwright worker (if selected model uses browser)
+    5. Launch CLI or API server
 """
 
 import argparse
@@ -18,73 +22,85 @@ import sys
 
 from agent.config.settings import cfg
 
-# ── Available providers shown in the interactive menu ─────────────────────────
-# (key, display label, extra info shown to user)
+
+# ── Security warning (MANDATORY — printed before anything else) ───────────────
+
+def _print_security_warning() -> None:
+    """
+    Print the mandatory security warning before any browser is launched.
+    This is non-optional and must appear on every startup.
+    """
+    W = 62
+    bar = "═" * W
+    print(f"\n╔{bar}╗")
+    print(f"║{'':62}║")
+    print(f"║{'  ⚠️   WARNING':^62}║")
+    print(f"║{'':62}║")
+    print(f"║  This tool automates browser interaction with LLM services.{'':2}║")
+    print(f"║  Using automation may violate provider terms of service.{'':4}║")
+    print(f"║{'':62}║")
+    print(f"║  You risk:{'':51}║")
+    print(f"║  - temporary or permanent account suspension{'':17}║")
+    print(f"║  - captcha / Cloudflare blocks{'':31}║")
+    print(f"║{'':62}║")
+    print(f"║  RECOMMENDATION: Use a secondary account.{'':20}║")
+    print(f"║{'':62}║")
+    print(f"╚{bar}╝\n")
+
+
+# ── Available providers for the interactive menu ──────────────────────────────
+
 _PROVIDER_MENU: list[tuple[str, str]] = [
-    ("openai_ui",   "ChatGPT via browser     (Playwright – no API key needed)"),
-    ("claude",      "Anthropic Claude        (requires ANTHROPIC_API_KEY)"),
-    ("gemini",      "Google Gemini           (requires GOOGLE_API_KEY)"),
-    ("deepseek",    "DeepSeek                (requires DEEPSEEK_API_KEY)"),
-    ("groq",        "Groq fast inference     (requires GROQ_API_KEY)"),
-    ("qwen",        "Alibaba Qwen            (requires DASHSCOPE_API_KEY)"),
-    ("perplexity",  "Perplexity AI           (requires PERPLEXITY_API_KEY)"),
-    ("mock",        "Mock / no-op            (testing – no API key needed)"),
+    ("openai_ui",   "ChatGPT      (chat.openai.com)"),
+    ("claude_ui",   "Claude       (claude.ai)"),
+    ("gemini_ui",   "Gemini       (gemini.google.com)"),
+    ("deepseek_ui", "DeepSeek     (chat.deepseek.com)"),
+    ("grok_ui",     "Grok / xAI   (grok.com)"),
+    ("qwen_ui",     "Qwen         (chat.qwen.ai)"),
+    ("perplexity_ui","Perplexity  (perplexity.ai)"),
+    ("mock",        "Mock         (no browser — testing only)"),
 ]
 
-_OPENAI_UI_ALIASES = frozenset({
-    "openai_ui", "chatgpt", "gpt-4", "gpt-4o", "gpt-3.5-turbo"
-})
+# Models that require the Playwright worker
+_BROWSER_MODELS = frozenset(k for k, _ in _PROVIDER_MENU if k != "mock")
 
 
 # ── Interactive prompts ───────────────────────────────────────────────────────
 
 def _prompt_mode() -> str:
-    """
-    Ask the user to choose a run mode.
-    Shows config.json value as a hint but always waits for explicit input.
-
-    Returns: "cli" or "api"
-    """
-    default_hint = f"  (current default in config.json: {cfg.mode!r})"
-    print("\nSelect mode:")
+    """Ask user to choose CLI or API mode. Shows config.json default as hint."""
+    default_hint = f"  (config.json default: {cfg.mode!r})"
+    print("Select mode:")
     print(f"  1. CLI interactive{default_hint if cfg.mode == 'cli' else ''}")
     print(f"  2. API server (localhost){default_hint if cfg.mode == 'api' else ''}")
     print()
 
     while True:
         try:
-            raw = input("Enter 1 or 2 [or press Enter for default]: ").strip()
+            raw = input("Enter 1 or 2 [Enter = keep default]: ").strip()
         except (EOFError, KeyboardInterrupt):
             print("\nAborted.")
             sys.exit(0)
 
         if raw == "":
-            # Accept the config.json default
             return cfg.mode if cfg.mode in ("cli", "api") else "cli"
         if raw == "1":
             return "cli"
         if raw == "2":
             return "api"
-
         print("  ⚠️  Please enter 1 or 2.")
 
 
 def _prompt_model() -> str:
     """
-    Ask the user to choose a provider / model.
-    Shows config.json default_model as the pre-selected option.
-
-    Returns: provider key string (e.g. "openai_ui", "claude", …)
+    Ask user to choose a provider. Shows config.json default_model as hint.
+    Returns the provider key (e.g. "openai_ui", "claude_ui", …).
     """
-    default_key   = cfg.default_model
-    default_index = next(
-        (i for i, (k, _) in enumerate(_PROVIDER_MENU) if k == default_key),
-        0,
-    )
+    default_key = cfg.default_model
 
-    print("\nSelect model / provider:")
+    print("Select model / provider:")
     for i, (key, label) in enumerate(_PROVIDER_MENU, start=1):
-        marker = " ← default" if key == default_key else ""
+        marker = "  ← default" if key == default_key else ""
         print(f"  {i}. {label}{marker}")
     print()
 
@@ -92,14 +108,14 @@ def _prompt_model() -> str:
         try:
             raw = input(
                 f"Enter number [1-{len(_PROVIDER_MENU)}] "
-                f"or press Enter for default ({default_key}): "
+                f"[Enter = {default_key}]: "
             ).strip()
         except (EOFError, KeyboardInterrupt):
             print("\nAborted.")
             sys.exit(0)
 
         if raw == "":
-            return default_key  # Accept config.json default
+            return default_key
 
         if raw.isdigit():
             idx = int(raw) - 1
@@ -112,36 +128,37 @@ def _prompt_model() -> str:
 # ── Playwright worker startup ─────────────────────────────────────────────────
 
 def _start_worker_if_needed(model: str) -> None:
-    """Start the Playwright worker thread if the chosen model uses the browser."""
-    if model in _OPENAI_UI_ALIASES:
+    """
+    Start the Playwright worker and eagerly open the tab + inject the system
+    prompt for the selected model, so the browser is fully ready before the
+    user types their first message.
+    """
+    if model in _BROWSER_MODELS:
         from agent import worker
-        print(f"🚀 Starting Playwright worker for model {model!r}…")
-        worker.start()   # Blocks until browser ready; raises on failure
+        print(f"🚀 Starting browser context…")
+        worker.start()   # blocks until browser context is open
+
+        print(f"🌐 Opening tab for {model} and injecting system context…")
+        worker.preload(model)   # opens tab, waits for login if needed, injects prompt
+        print(f"✅ {model} is ready.\n")
 
 
 # ── Mode runners ──────────────────────────────────────────────────────────────
 
 def _run_cli(model: str) -> None:
-    """Start the interactive CLI loop."""
     _start_worker_if_needed(model)
-
     from agent.cli import run_cli
     run_cli(model=model)
 
 
 def _run_api(model: str, host: str, port: int) -> None:
-    """Start the FastAPI server via uvicorn."""
     try:
         import uvicorn
     except ImportError:
-        print(
-            "❌ uvicorn is not installed.\n"
-            "   Install it with:  pip install uvicorn[standard]"
-        )
+        print("❌ uvicorn not installed.  Run: pip install uvicorn[standard]")
         sys.exit(1)
 
-    # Override the live settings so the API server uses the selected provider
-    # without requiring the user to edit config.json first.
+    # Propagate selected model to the live settings so api_server uses it
     if model != cfg.default_model:
         cfg._data["default_model"] = model
         cfg.default_model          = model
@@ -163,63 +180,48 @@ def _run_api(model: str, host: str, port: int) -> None:
 
 def main() -> None:
     """
-    Parse CLI arguments, resolve mode + model, and launch the correct runner.
+    Parse arguments, print security warning, prompt for mode + model,
+    then launch the selected runner.
 
-    When flags are absent the user is ALWAYS prompted interactively.
-    config.json values are shown as suggestions / defaults, never auto-selected.
+    Flags bypass the interactive prompts:
+        --cli / --api   skip mode prompt
+        --model <name>  skip model prompt
     """
     parser = argparse.ArgumentParser(
         prog="python -m agent.main",
-        description="ChatGPT Simulation – Multi-Provider LLM Agent",
+        description="Multi-Provider Browser-Automation LLM Agent",
     )
-
-    # Mode flags (mutually exclusive)
     mode_group = parser.add_mutually_exclusive_group()
-    mode_group.add_argument(
-        "--cli", action="store_true",
-        help="Skip prompt and run in CLI interactive mode",
-    )
-    mode_group.add_argument(
-        "--api", action="store_true",
-        help="Skip prompt and run as local API server (FastAPI + uvicorn)",
-    )
-
-    parser.add_argument(
-        "--model", type=str, default=None,
-        help="Skip model prompt and use this provider (e.g. --model claude)",
-    )
-    parser.add_argument(
-        "--host", type=str, default="127.0.0.1",
-        help="API server bind address (default: 127.0.0.1)",
-    )
-    parser.add_argument(
-        "--port", type=int, default=8000,
-        help="API server port (default: 8000)",
-    )
-
+    mode_group.add_argument("--cli", action="store_true",
+                            help="Skip prompt → run CLI mode")
+    mode_group.add_argument("--api", action="store_true",
+                            help="Skip prompt → run API server mode")
+    parser.add_argument("--model", type=str, default=None,
+                        help="Skip model prompt (e.g. --model claude_ui)")
+    parser.add_argument("--host", type=str, default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
 
-    # ── Resolve mode ──────────────────────────────────────────────────────
-    # Flags take priority; otherwise always ask the user interactively.
+    # ── 1. Security warning — always first ───────────────────────────────
+    _print_security_warning()
+
+    # ── 2. Resolve mode ───────────────────────────────────────────────────
     if args.cli:
         mode = "cli"
     elif args.api:
         mode = "api"
     else:
-        # No flag → always prompt, regardless of config.json
-        mode = _prompt_mode()
+        mode = _prompt_mode()   # always interactive when no flag given
 
-    # ── Resolve model ─────────────────────────────────────────────────────
-    # --model flag takes priority; otherwise always ask the user interactively.
-    if args.model:
-        model = args.model
-    else:
-        # No flag → always prompt, regardless of config.json
-        model = _prompt_model()
+    # Write mode back to the live cfg singleton so worker.py and api_server.py
+    # both see the user's runtime choice, not the stale config.json value.
+    cfg.mode = mode
 
-    print()  # Visual separator before launch output
+    # ── 3. Resolve model ──────────────────────────────────────────────────
+    model = args.model if args.model else _prompt_model()
+    print()
 
-    # ── Dispatch ──────────────────────────────────────────────────────────
+    # ── 4. Dispatch ───────────────────────────────────────────────────────
     if mode == "cli":
         _run_cli(model=model)
     else:

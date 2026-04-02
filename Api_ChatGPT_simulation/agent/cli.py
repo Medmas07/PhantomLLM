@@ -19,6 +19,7 @@ System prompt injection
 
 from agent.config.settings import cfg
 from agent.models.router import generate
+from agent.protocol.action_parser import strip_actions
 from agent.protocol.system_prompt import get_system_prompt
 
 
@@ -79,7 +80,8 @@ def run_cli(model: str | None = None) -> None:
             print(f"\n💥 Unexpected error: {exc}\n")
             continue
 
-        # Persist and display the assistant response
+        # Keep full response in history (ACTION blocks preserved for context),
+        # but display only the clean human-readable text to the user.
         history.append({"role": "assistant", "content": response})
-        print(f"\n{response}\n")
+        print(f"\n{strip_actions(response)}\n")
         print("-" * 60)

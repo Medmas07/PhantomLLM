@@ -22,9 +22,18 @@ Protocol note:
 
 import shutil
 
+from agent.config.settings import cfg
 from agent.tools.base64_utils import safe_b64decode, b64encode_bytes
 from agent.tools.paths import safe_path
 from agent.tools.versioning import backup
+
+
+def _rel(path) -> str:
+    """Return the workspace-relative POSIX string for an absolute path."""
+    try:
+        return path.relative_to(cfg.workspace).as_posix()
+    except ValueError:
+        return path.as_posix()   # fallback: shouldn't happen inside safe_path
 
 
 # ── Public entry-point ────────────────────────────────────────────────────────
@@ -82,7 +91,7 @@ def _dispatch(act: str, a: dict):
         backup(path)
         raw = safe_b64decode(a.get("content", ""))
         path.write_bytes(raw)
-        return f"✅ write_file  {path.as_posix()}  ({len(raw)} bytes)"
+        return f"✅ write_file  {_rel(path)}  ({len(raw)} bytes)"
 
     # ── APPEND FILE ───────────────────────────────────────────────────────────
     elif act == "append_file":
@@ -91,7 +100,7 @@ def _dispatch(act: str, a: dict):
         raw = safe_b64decode(a.get("content", ""))
         with open(path, "ab") as fh:
             fh.write(raw)
-        return f"✅ append_file  {path.as_posix()}  (+{len(raw)} bytes)"
+        return f"✅ append_file  {_rel(path)}  (+{len(raw)} bytes)"
 
     # ── READ FILE ─────────────────────────────────────────────────────────────
     elif act == "read_file":
@@ -99,7 +108,7 @@ def _dispatch(act: str, a: dict):
         raw = path.read_bytes()
         return {
             "action":  "read_file",
-            "path":    path.as_posix(),
+            "path":    _rel(path),
             "content": b64encode_bytes(raw),   # model must decode this
             "size":    len(raw),
         }
@@ -121,7 +130,7 @@ def _dispatch(act: str, a: dict):
 
         return {
             "action": "list_files",
-            "path":   base.as_posix(),
+            "path":   _rel(base),
             "files":  sorted(files),
         }
 
@@ -129,19 +138,19 @@ def _dispatch(act: str, a: dict):
     elif act == "delete_file":
         path = safe_path(a["path"])
         path.unlink(missing_ok=True)
-        return f"🗑️  delete_file  {path.as_posix()}"
+        return f"🗑️  delete_file  {_rel(path)}"
 
     # ── MAKE DIR ──────────────────────────────────────────────────────────────
     elif act == "make_dir":
         path = safe_path(a["path"])
         path.mkdir(parents=True, exist_ok=True)
-        return f"📁 make_dir  {path.as_posix()}"
+        return f"📁 make_dir  {_rel(path)}"
 
     # ── DELETE DIR ────────────────────────────────────────────────────────────
     elif act == "delete_dir":
         path = safe_path(a["path"])
         shutil.rmtree(path, ignore_errors=True)
-        return f"🗑️  delete_dir  {path.as_posix()}"
+        return f"🗑️  delete_dir  {_rel(path)}"
 
     # ── REPLACE TEXT ──────────────────────────────────────────────────────────
     elif act == "replace_text":
@@ -153,7 +162,7 @@ def _dispatch(act: str, a: dict):
         patched = text.replace(old, new)
         path.write_text(patched, encoding="utf-8")
         count = text.count(old)
-        return f"✏️  replace_text  {path.as_posix()}  ({count} occurrence(s) replaced)"
+        return f"✏️  replace_text  {_rel(path)}  ({count} occurrence(s) replaced)"
 
     # ── UNKNOWN ───────────────────────────────────────────────────────────────
     else:

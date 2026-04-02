@@ -67,23 +67,34 @@ class LegacyMessageRequest(BaseModel):
 
 # ── Lifespan (startup / shutdown hooks) ──────────────────────────────────────
 
+_BROWSER_MODELS = frozenset({
+    "openai_ui", "claude_ui", "gemini_ui", "deepseek_ui",
+    "grok_ui", "qwen_ui", "perplexity_ui",
+})
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
-    On startup: launch the Playwright worker if the default model needs it.
+    On startup: if the default model uses a browser, start the Playwright worker,
+    open the provider tab, and inject the system context — so the server is fully
+    ready before the first HTTP request arrives.
     On shutdown: nothing (worker thread is daemonised and exits with the process).
     """
-    _openai_ui_aliases = {"openai_ui", "chatgpt", "gpt-4", "gpt-4o", "gpt-3.5-turbo"}
+    model = cfg.default_model
 
-    if cfg.default_model in _openai_ui_aliases:
+    if model in _BROWSER_MODELS:
         from agent import worker
-        print("🚀 Starting Playwright worker for openai_ui provider…")
         loop = asyncio.get_event_loop()
-        # worker.start() blocks – run it off the event loop thread
-        await loop.run_in_executor(None, worker.start)
-        print("✅ Playwright worker ready")
 
-    yield   # ← server is running here
+        print(f"🚀 Starting Playwright browser context…")
+        await loop.run_in_executor(None, worker.start)
+
+        print(f"🌐 Opening tab for {model} and injecting system context…")
+        await loop.run_in_executor(None, lambda: worker.preload(model))
+        print(f"✅ {model} ready — server accepting requests")
+
+    yield   # ← server is live here
 
     # (graceful teardown can be added here in the future)
 
