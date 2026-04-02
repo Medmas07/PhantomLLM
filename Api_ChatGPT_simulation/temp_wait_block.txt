@@ -1,0 +1,61 @@
+﻿    def wait_for_response(self, page, prev_count: int, timeout: int = 180) -> str:
+        """
+        Override the base stability-poller with a Gemini-specific approach.
+
+        Completion signal: the send button reappears (Gemini shows it only when
+        done generating). This exits immediately when Gemini finishes, instead
+        of running the full 60-second timeout.
+
+        Fallback: if the send button signal is not available, fall back to
+        text-stability polling with a reduced round count.
+        """
+        POLL_MS = 400
+        STABLE_ROUNDS = 3
+        import time as _time
+        start = _time.time()
+
+        # Phase 1: wait for a response element to appear (cap at 30 s)
+        phase1_limit = min(timeout, 30)
+        while self.get_response_count(page) <= prev_count:
+            elapsed = _time.time() - start
+            if elapsed > phase1_limit:
+                # No response element appeared â€” check send button as fallback
+                # If send button is already back, Gemini silently accepted the input
+                if _get_send_button(page) is not None:
+                    return ""
+                return ""
+            page.wait_for_timeout(POLL_MS)
+
+        # Phase 2: wait until send button reappears (= generation complete)
+        last   = ""
+        stable = 0
+        while True:
+            elapsed = _time.time() - start
+            if elapsed > timeout:
+                break
+
+            # Primary done-signal: send button visible and enabled again
+            if _get_send_button(page) is not None:
+                # Grab the final text and return immediately
+                text = self.extract_response(page, prev_count)
+                if text:
+                    return text
+                # Button back but text empty â€” give it one more poll
+                page.wait_for_timeout(POLL_MS)
+                return self.extract_response(page, prev_count)
+
+            # Fallback: text-stability check
+            text = self.extract_response(page, prev_count)
+            if text and text == last:
+                stable += 1
+                if stable >= STABLE_ROUNDS:
+                    break
+            else:
+                stable = 0
+            last = text
+            page.wait_for_timeout(POLL_MS)
+
+        return self.extract_response(page, prev_count)
+
+
+
