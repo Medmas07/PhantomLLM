@@ -1,4 +1,4 @@
-# API ChatGPT Simulation
+# PhantomLLM
 
 Multi-provider LLM assistant that runs through browser UIs (Playwright) and exposes both:
 - an interactive CLI
