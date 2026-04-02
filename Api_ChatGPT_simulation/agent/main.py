@@ -6,7 +6,7 @@ Run modes
     python -m agent.main            ← interactive mode + model selection
     python -m agent.main --cli      ← skip prompt, direct CLI
     python -m agent.main --api      ← skip prompt, direct API server
-    python -m agent.main --cli --model claude
+    python -m agent.main --cli --model chatgpt
 
 Startup sequence
 ────────────────
@@ -15,6 +15,11 @@ Startup sequence
     3. Prompt for model        (unless --model flag given)
     4. Start Playwright worker (if selected model uses browser)
     5. Launch CLI or API server
+
+Development priority
+────────────────────
+    NEXT FOCUS: gemini_ui — next provider to debug and stabilize.
+    All future provider work should target gemini_ui first.
 """
 
 import argparse
@@ -26,10 +31,6 @@ from agent.config.settings import cfg
 # ── Security warning (MANDATORY — printed before anything else) ───────────────
 
 def _print_security_warning() -> None:
-    """
-    Print the mandatory security warning before any browser is launched.
-    This is non-optional and must appear on every startup.
-    """
     W = 62
     bar = "═" * W
     print(f"\n╔{bar}╗")
@@ -48,27 +49,50 @@ def _print_security_warning() -> None:
     print(f"╚{bar}╝\n")
 
 
-# ── Available providers for the interactive menu ──────────────────────────────
+# ── Provider menu ─────────────────────────────────────────────────────────────
+# Format: (model_key, display_label)
+# Special sentinel "__use_api__" triggers API server mode (option 10).
+#
+# NEXT FOCUS: gemini_ui — debugging and stabilization target.
 
 _PROVIDER_MENU: list[tuple[str, str]] = [
-    ("openai_ui",   "ChatGPT      (chat.openai.com)"),
-    ("claude_ui",   "Claude       (claude.ai)"),
-    ("gemini_ui",   "Gemini       (gemini.google.com)"),
-    ("deepseek_ui", "DeepSeek     (chat.deepseek.com)"),
-    ("grok_ui",     "Grok / xAI   (grok.com)"),
-    ("qwen_ui",     "Qwen         (chat.qwen.ai)"),
-    ("perplexity_ui","Perplexity  (perplexity.ai)"),
-    ("mock",        "Mock         (no browser — testing only)"),
+    ("openai_ui",     "ChatGPT      (chat.openai.com)  ← default (stable)"),
+    ("gemini_ui",     "Gemini       (gemini.google.com)  (pending)"),
+    ("meta_ui",       "Meta AI      (https://meta.ai/) (pending)"),
+    ("baidu_ui",      "Baidu AI     (requires VPN) (pending)"),
+    ("perplexity_ui", "Perplexity   (unstable, pending)"),
+    ("claude_ui",     "Claude       (coming soon)"),
+    ("deepseek_ui",   "DeepSeek     (chat.deepseek.com) (coming soon)"),
+    ("grok_ui",       "Grok / xAI   (grok.com) (coming soon)"),
+    ("qwen_ui",       "Qwen         (chat.qwen.ai) (coming soon)"),
+    ("__use_api__",   "Use API"),
 ]
 
-# Models that require the Playwright worker
-_BROWSER_MODELS = frozenset(k for k, _ in _PROVIDER_MENU if k != "mock")
+# Providers that require a live Playwright browser session.
+# Excludes unimplemented stubs and the API sentinel.
+_BROWSER_MODELS: frozenset[str] = frozenset({
+    "openai_ui",
+    "gemini_ui",     # NEXT FOCUS: stabilize gemini_ui
+    "perplexity_ui",
+    "claude_ui",
+    "deepseek_ui",
+    "grok_ui",
+    "qwen_ui",
+})
+
+# Providers that have no implementation yet — fail fast with a clear message.
+_UNIMPLEMENTED_PROVIDERS: frozenset[str] = frozenset({
+    "meta_ui",
+    "baidu_ui",
+})
+
+# Default model key (option 1 = ChatGPT).
+_DEFAULT_MODEL = "openai_ui"
 
 
 # ── Interactive prompts ───────────────────────────────────────────────────────
 
 def _prompt_mode() -> str:
-    """Ask user to choose CLI or API mode. Shows config.json default as hint."""
     default_hint = f"  (config.json default: {cfg.mode!r})"
     print("Select mode:")
     print(f"  1. CLI interactive{default_hint if cfg.mode == 'cli' else ''}")
@@ -93,53 +117,45 @@ def _prompt_mode() -> str:
 
 def _prompt_model() -> str:
     """
-    Ask user to choose a provider. Shows config.json default_model as hint.
-    Returns the provider key (e.g. "openai_ui", "claude_ui", …).
+    Ask user to choose a provider from the ordered menu.
+    Returns a model key (e.g. "openai_ui") or "__use_api__".
+    Default = _DEFAULT_MODEL (ChatGPT, option 1).
     """
-    default_key = cfg.default_model
-
     print("Select model / provider:")
     for i, (key, label) in enumerate(_PROVIDER_MENU, start=1):
-        marker = "  ← default" if key == default_key else ""
+        marker = "  ← default" if key == _DEFAULT_MODEL else ""
         print(f"  {i}. {label}{marker}")
     print()
 
+    n = len(_PROVIDER_MENU)
     while True:
         try:
-            raw = input(
-                f"Enter number [1-{len(_PROVIDER_MENU)}] "
-                f"[Enter = {default_key}]: "
-            ).strip()
+            raw = input(f"Enter number [1-{n}] [Enter = ChatGPT]: ").strip()
         except (EOFError, KeyboardInterrupt):
             print("\nAborted.")
             sys.exit(0)
 
         if raw == "":
-            return default_key
+            return _DEFAULT_MODEL
 
         if raw.isdigit():
             idx = int(raw) - 1
-            if 0 <= idx < len(_PROVIDER_MENU):
+            if 0 <= idx < n:
                 return _PROVIDER_MENU[idx][0]
 
-        print(f"  ⚠️  Please enter a number between 1 and {len(_PROVIDER_MENU)}.")
+        print(f"  ⚠️  Please enter a number between 1 and {n}.")
 
 
 # ── Playwright worker startup ─────────────────────────────────────────────────
 
 def _start_worker_if_needed(model: str) -> None:
-    """
-    Start the Playwright worker and eagerly open the tab + inject the system
-    prompt for the selected model, so the browser is fully ready before the
-    user types their first message.
-    """
     if model in _BROWSER_MODELS:
         from agent import worker
         print(f"🚀 Starting browser context…")
-        worker.start()   # blocks until browser context is open
+        worker.start()
 
         print(f"🌐 Opening tab for {model} and injecting system context…")
-        worker.preload(model)   # opens tab, waits for login if needed, injects prompt
+        worker.preload(model)
         print(f"✅ {model} is ready.\n")
 
 
@@ -158,7 +174,6 @@ def _run_api(model: str, host: str, port: int) -> None:
         print("❌ uvicorn not installed.  Run: pip install uvicorn[standard]")
         sys.exit(1)
 
-    # Propagate selected model to the live settings so api_server uses it
     if model != cfg.default_model:
         cfg._data["default_model"] = model
         cfg.default_model          = model
@@ -179,14 +194,6 @@ def _run_api(model: str, host: str, port: int) -> None:
 # ── Entrypoint ────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    """
-    Parse arguments, print security warning, prompt for mode + model,
-    then launch the selected runner.
-
-    Flags bypass the interactive prompts:
-        --cli / --api   skip mode prompt
-        --model <name>  skip model prompt
-    """
     parser = argparse.ArgumentParser(
         prog="python -m agent.main",
         description="Multi-Provider Browser-Automation LLM Agent",
@@ -197,7 +204,7 @@ def main() -> None:
     mode_group.add_argument("--api", action="store_true",
                             help="Skip prompt → run API server mode")
     parser.add_argument("--model", type=str, default=None,
-                        help="Skip model prompt (e.g. --model claude_ui)")
+                        help="Skip model prompt (e.g. --model gemini_ui)")
     parser.add_argument("--host", type=str, default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
@@ -211,15 +218,23 @@ def main() -> None:
     elif args.api:
         mode = "api"
     else:
-        mode = _prompt_mode()   # always interactive when no flag given
+        mode = _prompt_mode()
 
-    # Write mode back to the live cfg singleton so worker.py and api_server.py
-    # both see the user's runtime choice, not the stale config.json value.
     cfg.mode = mode
 
     # ── 3. Resolve model ──────────────────────────────────────────────────
     model = args.model if args.model else _prompt_model()
     print()
+
+    # Option 10 "Use API" overrides mode to API server.
+    if model == "__use_api__":
+        model = cfg.default_model or _DEFAULT_MODEL
+        _run_api(model=model, host=args.host, port=args.port)
+        return
+
+    # Guard: unimplemented providers fail immediately with a clear message.
+    if model in _UNIMPLEMENTED_PROVIDERS:
+        raise RuntimeError(f"Provider not implemented: {model}")
 
     # ── 4. Dispatch ───────────────────────────────────────────────────────
     if mode == "cli":
