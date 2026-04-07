@@ -91,6 +91,7 @@ Edit `agent/config/config.json`:
 First-time interactive behavior:
 - If `browser_backend=playwright` and Chromium/Chrome path is missing/invalid, the launcher asks for it and saves it.
 - If `browser_backend=camoufox` with `headless=true`, the launcher asks once if it should run `python -m camoufox fetch` to cache browser binaries for background use.
+- In interactive mode, the launcher now suggests runtime choices: `Camoufox hidden`, `Camoufox visible`, or `Your browser (Playwright)`.
 
 ## Fallback system
 

@@ -59,7 +59,7 @@ def _print_security_warning() -> None:
 # NEXT FOCUS: gemini_ui — debugging and stabilization target.
 
 _PROVIDER_MENU: list[tuple[str, str]] = [
-    ("openai_ui",     "ChatGPT      (chat.openai.com)  ← default (stable)"),
+    ("openai_ui",     "ChatGPT      (chat.openai.com)  (stable)"),
     ("gemini_ui",     "Gemini       (gemini.google.com)  (stable)"),
     ("meta_ui",       "Meta AI      (https://meta.ai/)"),
     ("baidu_ui",      "Baidu AI     (requires VPN) (pending)"),
@@ -147,6 +147,40 @@ def _prompt_model() -> str:
                 return _PROVIDER_MENU[idx][0]
 
         print(f"  ⚠️  Please enter a number between 1 and {n}.")
+
+
+def _prompt_browser_runtime() -> tuple[str, bool]:
+    """
+    Ask which browser runtime profile to use for this session.
+    Returns (browser_backend, headless).
+    """
+    current_visibility = "hidden" if cfg.headless else "visible"
+    current_label = f"{cfg.browser_backend}/{current_visibility}"
+
+    print("Select browser runtime:")
+    print("  1. Camoufox hidden     (background, more stealth-oriented)")
+    print("  2. Camoufox visible    (manual login/debug friendly)")
+    print("  3. Your browser        (Playwright + your installed Chromium/Chrome)")
+    print(f"  4. Keep current config ({current_label})")
+    print()
+
+    while True:
+        try:
+            raw = input("Enter number [1-4] [Enter = keep current]: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\nAborted.")
+            sys.exit(0)
+
+        if raw == "" or raw == "4":
+            return cfg.browser_backend, cfg.headless
+        if raw == "1":
+            return "camoufox", True
+        if raw == "2":
+            return "camoufox", False
+        if raw == "3":
+            return "playwright", False
+
+        print("  WARNING: Please enter a number between 1 and 4.")
 
 
 def _prompt_yes_no(question: str, default_yes: bool = True) -> bool:
@@ -456,7 +490,25 @@ def main() -> None:
     if model in _UNIMPLEMENTED_PROVIDERS:
         raise RuntimeError(f"Provider not implemented: {model}")
 
-    _run_first_time_browser_setup(model=model, interactive=sys.stdin.isatty())
+    # Interactive browser runtime selector:
+    # only when this session uses a browser model and no CLI override was passed.
+    interactive = sys.stdin.isatty()
+    has_cli_browser_override = (
+        args.browser is not None or args.show_browser or args.hide_browser
+    )
+    if interactive and model in _BROWSER_MODELS and not has_cli_browser_override:
+        selected_backend, selected_headless = _prompt_browser_runtime()
+        cfg.browser_backend = selected_backend
+        cfg.headless = selected_headless
+        cfg._data["browser_backend"] = selected_backend
+        cfg._data["headless"] = selected_headless
+        _save_config_safely()
+        print(
+            f"✅ Browser runtime selected: "
+            f"{cfg.browser_backend}/{'hidden' if cfg.headless else 'visible'}\n"
+        )
+
+    _run_first_time_browser_setup(model=model, interactive=interactive)
 
     # ── 4. Dispatch ───────────────────────────────────────────────────────
     if mode == "cli":
