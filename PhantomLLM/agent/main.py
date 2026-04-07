@@ -23,6 +23,7 @@ Development priority
 """
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
@@ -56,7 +57,53 @@ def _print_security_warning() -> None:
 # Format: (model_key, display_label)
 # Special sentinel "__use_api__" triggers API server mode (option 10).
 #
-# NEXT FOCUS: gemini_ui — debugging and stabilization target.
+# NEXT FOCUS: baidu_ui — debugging and stabilization target.
+
+def _print_phantom_logo() -> None:
+    """Print a Pac-Man style pixel ghost for interactive launcher mode."""
+    pixel_rows = [
+        "....RRRRRRSS....",
+        "...RRRRRRRRSS...",
+        "..RRRRRRRRRRSS..",
+        ".RRRRRRRRRRRRSS.",
+        "RRRRGGGRRGGGRRRS",
+        "RRRRGGGGRGGGGRRS",
+        "RRRRGPGRRGPGRRRS",
+        "RRRRGGGGRGGGGRRS",
+        "RRRRGGGRRGGGRRRS",
+        "RRRRRRRRRRRRRRRS",
+        "RRRRRRRRRRRRRRRS",
+        "RRRRRRRRRRRRRRRS",
+        "RRRRRRRRRRRRRRRS",
+        "RRR..RR..RR..RRS",
+    ]
+
+    ansi_ok = sys.stdout.isatty() and os.getenv("NO_COLOR") is None
+    term = os.getenv("TERM", "").lower()
+    if term == "dumb":
+        ansi_ok = False
+
+    if not ansi_ok:
+        print("     .-''-.")
+        print("   .'  .-.  '.")
+        print("  /   (o o)   \\")
+        print("  |    ===    |")
+        print("  |  .-'''-.  |")
+        print("  '._/|_|\\_.'\n")
+        return
+
+    color = {
+        "R": "\x1b[101m  \x1b[0m",  # bright red body
+        "S": "\x1b[41m  \x1b[0m",   # dark red shading
+        "G": "\x1b[47m  \x1b[0m",   # light gray eyes
+        "P": "\x1b[40m  \x1b[0m",   # black pupils
+        ".": "  ",
+    }
+
+    for row in pixel_rows:
+        print("".join(color[p] for p in row))
+    print()
+
 
 _PROVIDER_MENU: list[tuple[str, str]] = [
     ("openai_ui",     "ChatGPT      (chat.openai.com)  (stable)"),
@@ -457,6 +504,8 @@ def main() -> None:
 
     # ── 1. Security warning — always first ───────────────────────────────
     _print_security_warning()
+    if not args.cli and not args.api and sys.stdin.isatty():
+        _print_phantom_logo()
 
     # ── 2. Resolve mode ───────────────────────────────────────────────────
     if args.cli:

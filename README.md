@@ -154,7 +154,7 @@ curl http://127.0.0.1:8000/v1/chat/completions ^
 - `openai_ui`: stable
 - `gemini_ui`: stable
 - `perplexity_ui`: unstable / in progress
-- `claude_ui`, `deepseek_ui`, `grok_ui`, `qwen_ui`: scaffolding/ongoing stabilization
+- `claude_ui`, `deepseek_ui`, `grok_ui`, `qwen_ui`: scaffolding/ongoing 
 - `meta_ui`, `baidu_ui`: listed but not implemented
 
 ## Safety and limitations
