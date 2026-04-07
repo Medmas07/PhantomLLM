@@ -31,6 +31,7 @@ New: send(text, model, timeout)   ← model selects the provider tab
 import random
 import threading
 import time
+from pathlib import Path
 from queue import Empty, Queue
 
 
@@ -304,10 +305,10 @@ def _playwright_worker() -> None:
     try:
         # ── Start Playwright + Chrome ─────────────────────────────────────
         prov_cfg    = cfg.provider("openai_ui")
-        profile_dir = prov_cfg.get(
-            "profile_dir",
-            r"C:\Users\medte\AppData\Local\PlaywrightProfile",
+        profile_dir = str(
+            prov_cfg.get("profile_dir", "") or (cfg.workspace / ".browser-profile")
         )
+        Path(profile_dir).mkdir(parents=True, exist_ok=True)
 
         if backend == "camoufox":
             print("Starting Camoufox browser context (multi-tab mode)...")
@@ -328,17 +329,13 @@ def _playwright_worker() -> None:
         else:
             from playwright.sync_api import sync_playwright
 
-            exe_path = prov_cfg.get(
-                "executable_path",
-                r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-            )
+            exe_path = str(prov_cfg.get("executable_path", "")).strip()
 
             print("Starting Playwright browser context (multi-tab mode)...")
             playwright = sync_playwright().start()
 
-            context = playwright.chromium.launch_persistent_context(
+            launch_kwargs = dict(
                 user_data_dir=profile_dir,
-                executable_path=exe_path,
                 headless=cfg.headless,
                 slow_mo=100,
                 args=[
@@ -348,6 +345,10 @@ def _playwright_worker() -> None:
                     "--no-default-browser-check",
                 ],
             )
+            if exe_path:
+                launch_kwargs["executable_path"] = exe_path
+
+            context = playwright.chromium.launch_persistent_context(**launch_kwargs)
 
         # Browser is ready; tabs open lazily on first request
         _browser_ready = True
