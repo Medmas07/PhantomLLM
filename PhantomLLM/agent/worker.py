@@ -283,7 +283,6 @@ def _playwright_worker() -> None:
         from agent.protocol.action_parser import try_extract_action
         from agent.tools.file_tools import execute_actions
         from agent.models.providers.base_ui import SelectorAmbiguityError
-        from playwright.sync_api import sync_playwright
     except Exception as exc:
         _worker_error = f"Import error in worker thread: {exc}"
         return
@@ -297,38 +296,65 @@ def _playwright_worker() -> None:
 
     playwright = None
     context    = None
+    camoufox_browser = None
+    backend = str(getattr(cfg, "browser_backend", "playwright")).strip().lower()
+    if backend not in {"playwright", "camoufox"}:
+        backend = "playwright"
 
     try:
         # ── Start Playwright + Chrome ─────────────────────────────────────
-        prov_cfg    = cfg.provider("openai_ui")   # Chrome config lives here
+        prov_cfg    = cfg.provider("openai_ui")
         profile_dir = prov_cfg.get(
             "profile_dir",
             r"C:\Users\medte\AppData\Local\PlaywrightProfile",
         )
-        exe_path = prov_cfg.get(
-            "executable_path",
-            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-        )
 
-        print("🚀 Starting Playwright browser context (multi-tab mode)…")
-        playwright = sync_playwright().start()
+        if backend == "camoufox":
+            print("Starting Camoufox browser context (multi-tab mode)...")
+            try:
+                from camoufox.sync_api import Camoufox
+            except Exception as exc:
+                raise RuntimeError(
+                    "Camoufox backend selected but `camoufox` is not installed. "
+                    "Install it with: pip install camoufox && python -m camoufox fetch"
+                ) from exc
 
-        context = playwright.chromium.launch_persistent_context(
-            user_data_dir=profile_dir,
-            executable_path=exe_path,
-            headless=cfg.headless,
-            slow_mo=100,
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--start-maximized",
-                "--no-first-run",
-                "--no-default-browser-check",
-            ],
-        )
+            camoufox_browser = Camoufox(
+                headless=cfg.headless,
+                persistent_context=True,
+                user_data_dir=profile_dir,
+            )
+            context = camoufox_browser.__enter__()
+        else:
+            from playwright.sync_api import sync_playwright
+
+            exe_path = prov_cfg.get(
+                "executable_path",
+                r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            )
+
+            print("Starting Playwright browser context (multi-tab mode)...")
+            playwright = sync_playwright().start()
+
+            context = playwright.chromium.launch_persistent_context(
+                user_data_dir=profile_dir,
+                executable_path=exe_path,
+                headless=cfg.headless,
+                slow_mo=100,
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                    "--start-maximized",
+                    "--no-first-run",
+                    "--no-default-browser-check",
+                ],
+            )
 
         # Browser is ready; tabs open lazily on first request
         _browser_ready = True
-        print("✅ Browser context ready. Provider tabs will open on first use.")
+        print(
+            f"Browser context ready (backend={backend}). "
+            "Provider tabs will open on first use."
+        )
 
         # ── Main request loop ─────────────────────────────────────────────
         while True:
@@ -437,9 +463,20 @@ def _playwright_worker() -> None:
         print(f"💥 {_worker_error}")
 
     finally:
-        for obj, method in [(context, "close"), (playwright, "stop")]:
-            if obj is not None:
-                try:
-                    getattr(obj, method)()
-                except Exception:
-                    pass
+        if backend != "camoufox" and context is not None:
+            try:
+                context.close()
+            except Exception:
+                pass
+
+        if camoufox_browser is not None:
+            try:
+                camoufox_browser.__exit__(None, None, None)
+            except Exception:
+                pass
+
+        if playwright is not None:
+            try:
+                playwright.stop()
+            except Exception:
+                pass

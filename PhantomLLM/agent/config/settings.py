@@ -29,6 +29,7 @@ def _load() -> dict:
     defaults: dict = {
         "mode":          "cli",
         "default_model": "openai_ui",
+        "browser_backend": "playwright",
         "headless":      False,
         "workspace":     "./workspace",
         "providers":     {},
@@ -68,9 +69,14 @@ class Settings:
 
     def _apply(self) -> None:
         """Apply the current _data dict to typed attributes."""
-        self.mode:          str  = self._data.get("mode",          "cli")
-        self.default_model: str  = self._data.get("default_model", "openai_ui")
-        self.headless:      bool = self._data.get("headless",      False)
+        self.mode:            str  = self._data.get("mode",          "cli")
+        self.default_model:   str  = self._data.get("default_model", "openai_ui")
+        self.browser_backend: str  = str(
+            self._data.get("browser_backend", "playwright")
+        ).strip().lower()
+        if self.browser_backend not in {"playwright", "camoufox"}:
+            self.browser_backend = "playwright"
+        self.headless:        bool = self._data.get("headless",      False)
 
         # Resolve workspace path.
         # If relative, it is resolved relative to the agent/ root so the
@@ -107,7 +113,8 @@ class Settings:
     def __repr__(self) -> str:
         return (
             f"Settings(mode={self.mode!r}, default_model={self.default_model!r}, "
-            f"headless={self.headless}, workspace={self.workspace})"
+            f"browser_backend={self.browser_backend!r}, headless={self.headless}, "
+            f"workspace={self.workspace})"
         )
 
 

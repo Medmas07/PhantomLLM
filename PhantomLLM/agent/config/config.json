@@ -3,6 +3,7 @@
 
   "mode": "cli",
   "default_model": "openai_ui",
+  "browser_backend": "playwright",
   "headless": false,
   "workspace": "./workspace",
 

@@ -151,7 +151,10 @@ def _prompt_model() -> str:
 def _start_worker_if_needed(model: str) -> None:
     if model in _BROWSER_MODELS:
         from agent import worker
-        print(f"🚀 Starting browser context…")
+        print(
+            f"🚀 Starting browser context "
+            f"[backend={cfg.browser_backend}, headless={cfg.headless}]…"
+        )
         worker.start()
 
         print(f"🌐 Opening tab for {model} and injecting system context…")
@@ -205,6 +208,23 @@ def main() -> None:
                             help="Skip prompt → run API server mode")
     parser.add_argument("--model", type=str, default=None,
                         help="Skip model prompt (e.g. --model gemini_ui)")
+    parser.add_argument(
+        "--browser",
+        choices=("playwright", "camoufox"),
+        default=None,
+        help="Browser backend for UI automation (default: config.json value)",
+    )
+    vis_group = parser.add_mutually_exclusive_group()
+    vis_group.add_argument(
+        "--show-browser",
+        action="store_true",
+        help="Run browser in visible mode (headless=false)",
+    )
+    vis_group.add_argument(
+        "--hide-browser",
+        action="store_true",
+        help="Run browser in hidden mode (headless=true)",
+    )
     parser.add_argument("--host", type=str, default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
@@ -221,6 +241,14 @@ def main() -> None:
         mode = _prompt_mode()
 
     cfg.mode = mode
+
+    # Optional runtime overrides for browser backend / visibility.
+    if args.browser is not None:
+        cfg.browser_backend = args.browser
+    if args.show_browser:
+        cfg.headless = False
+    elif args.hide_browser:
+        cfg.headless = True
 
     # ── 3. Resolve model ──────────────────────────────────────────────────
     model = args.model if args.model else _prompt_model()
