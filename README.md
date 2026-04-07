@@ -11,10 +11,14 @@ Instead of calling paid model APIs directly, it automates browser-based chat int
 
 The long-term goal is to keep expanding and maintaining compatibility with as many LLM browser UIs as possible.
 
+Important: this project is for educational, research, and testing use.  
+It is not a guarantee of production-grade reliability against third-party UI changes.
+
 ## Core features
 
 - Multi-provider routing (`ChatGPT`, `Gemini`, `Perplexity`, and more providers in progress)
 - Single Playwright worker with one persistent browser context and provider-specific tabs
+- Configurable fallback chain across providers (`fallback_enabled`, `fallback_models`)
 - CLI chat loop with history management
 - OpenAI-compatible endpoint: `POST /v1/chat/completions`
 - Tool/action execution protocol (`<ACTION>...</ACTION>`) for local file operations
@@ -52,12 +56,13 @@ The long-term goal is to keep expanding and maintaining compatibility with as ma
 ## Requirements
 
 - Python 3.11+ recommended
-- Google Chrome installed (Windows path is configured in `agent/config/config.json`)
+- Google Chrome / Chromium recommended (auto-detection for Windows/Linux)
 - Dependencies in `requirements.txt`:
   - `fastapi`
   - `uvicorn[standard]`
   - `pydantic`
   - `playwright`
+  - `camoufox`
 
 ## Installation
 
@@ -74,9 +79,28 @@ Edit `agent/config/config.json`:
 
 - `mode`: default runtime mode (`cli` or `api`)
 - `default_model`: default provider key (for example `openai_ui`)
+- `browser_backend`: `playwright` or `camoufox`
+- `camoufox_fetch_prompted`: internal flag to avoid repeating first-time Camoufox cache prompt
+- `fallback_enabled`: enables runtime fallback attempts when a provider fails
+- `fallback_models`: ordered provider/model aliases used as fallback candidates
+- `headless`: `false` shows the browser, `true` hides it
 - `workspace`: writable workspace root for tool actions
 - `providers.openai_ui.profile_dir`: persistent Chrome profile directory
-- `providers.openai_ui.executable_path`: Chrome executable path
+- `providers.openai_ui.executable_path`: Chrome/Chromium executable path (optional; auto-detected when possible)
+
+First-time interactive behavior:
+- If `browser_backend=playwright` and Chromium/Chrome path is missing/invalid, the launcher asks for it and saves it.
+- If `browser_backend=camoufox` with `headless=true`, the launcher asks once if it should run `python -m camoufox fetch` to cache browser binaries for background use.
+
+## Fallback system
+
+If a provider call fails at runtime (timeout, UI break, transient errors), the router can automatically retry using fallback models from `fallback_models`.
+
+Default chain:
+1. requested model
+2. `default_model`
+3. `fallback_models` (in order)
+4. final safety fallback: `openai_ui`
 
 ## Run the project
 
@@ -94,6 +118,13 @@ You can choose:
 
 ```bash
 python -m agent.main --cli --model gemini_ui
+```
+
+With explicit browser backend + visibility:
+
+```bash
+python -m agent.main --cli --model openai_ui --browser camoufox --show-browser
+python -m agent.main --cli --model openai_ui --browser camoufox --hide-browser
 ```
 
 ### API server directly
@@ -131,6 +162,29 @@ curl http://127.0.0.1:8000/v1/chat/completions ^
 - Accounts may face temporary/permanent restrictions.
 - Use a secondary account for testing.
 - Response timings and selectors can break when provider UIs change.
+- Educational/testing use only; validate outputs before real-world decisions.
+
+## Production notes (Windows + Linux)
+
+- Prefer `--api` mode behind a process manager:
+  - Windows: NSSM / Task Scheduler / service wrapper
+  - Linux: systemd or supervisor
+- Run with a dedicated browser profile directory and service account.
+- Keep `fallback_enabled=true` in production-like tests.
+- Add monitoring on `/status` and restart on persistent failures.
+- Pin dependency versions and update selectors regularly as UIs evolve.
+
+## Open source contributions
+
+Contributions are welcome and encouraged.
+
+- Improve provider stability and selector resilience.
+- Implement missing providers/models and expand aliases.
+- Improve fallback strategy and health/error reporting.
+- Improve cross-environment compatibility (Windows/Linux/macOS, CI, containers).
+- Add tests, docs, and reproducible bug reports.
+
+Please open an issue or pull request. See `CONTRIBUTING.md` for guidelines.
 
 ## Notes for development
 
