@@ -241,6 +241,11 @@ For responsible usage:
 - keep contributions focused on reliability, transparency, and maintainability
 - treat this project as educational/research/testing software, not guaranteed production compliance with third-party UIs
 
+## License
+
+This project is licensed under the MIT License.
+See the `LICENSE` file for full text.
+
 ## Notes for development
 
 - Add or adjust provider selectors in `agent/models/providers/`

@@ -47,3 +47,8 @@ python -m camoufox fetch
 
 This project is intended for educational, research, and testing use.  
 Please avoid unsafe or policy-violating automation usage.
+
+## License of contributions
+
+By submitting a pull request, you agree that your contributions are provided
+under the project's MIT License.
