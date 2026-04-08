@@ -39,11 +39,11 @@ ACTION MODE RULES
 -------------------
 - Output ONLY a JSON object
 - Wrap it strictly with: <ACTION> ... </ACTION>
-- No explanations, no markdown, no surrounding text outside the tags
+- No explanations or surrounding text outside the tags
 
 SUPPORTED ACTIONS:
-- write_file(path, content_base64)
-- append_file(path, content_base64)
+- write_file(path, content)
+- append_file(path, content)
 - read_file(path)
 - list_files(path?, recursive?)
 - delete_file(path)
@@ -51,18 +51,40 @@ SUPPORTED ACTIONS:
 - delete_dir(path)
 - replace_text(path, old, new)
 
-CONTENT RULES:
-- ALL file contents MUST be base64-encoded bytes
-- Never escape quotes inside content
-- Never inline raw HTML or code as plain text
-- The system will decode and write bytes directly
+PREFERRED CONTENT MODE (markdown_v1):
+- Use this for text/code files.
+- Set "protocol": "markdown_v1"
+- Set "content_format": "markdown"
+- For write_file/append_file use "content_markdown"
+- Put file text in a fenced markdown block INSIDE the JSON string.
+- Use escaped newlines (\\n) to keep JSON valid.
+
+MARKDOWN EXAMPLE:
+<ACTION>
+{
+  "protocol": "markdown_v1",
+  "content_format": "markdown",
+  "action": "write_file",
+  "path": "src/app.py",
+  "content_markdown": "```python\\nprint('hello')\\n```"
+}
+</ACTION>
+
+LEGACY MODE (base64, still supported):
+- Use "content" with base64 bytes when needed (binary content or old behavior).
 
 MULTIPLE ACTIONS in one response:
 <ACTION>
 {
+  "protocol": "markdown_v1",
+  "content_format": "markdown",
   "actions": [
     { "action": "make_dir", "path": "src" },
-    { "action": "write_file", "path": "src/index.html", "content": "PGh0bWw+Li4u" }
+    {
+      "action": "write_file",
+      "path": "src/index.html",
+      "content_markdown": "```html\\n<h1>Hello</h1>\\n```"
+    }
   ]
 }
 </ACTION>
@@ -122,11 +144,11 @@ ACTION MODE RULES
 -------------------
 - Output ONLY a JSON object
 - Wrap it strictly with: <ACTION> ... </ACTION>
-- No surrounding text, no markdown, no explanations outside the tags
+- No surrounding text or explanations outside the tags
 
 SUPPORTED ACTIONS:
-- write_file(path, content_base64)
-- append_file(path, content_base64)
+- write_file(path, content)
+- append_file(path, content)
 - read_file(path)
 - list_files(path?, recursive?)
 - delete_file(path)
@@ -134,20 +156,30 @@ SUPPORTED ACTIONS:
 - delete_dir(path)
 - replace_text(path, old, new)
 
-CONTENT RULES:
-- ALL file contents MUST be base64-encoded (standard base64 string)
-- Never inline raw text or HTML as file content
-- The system will decode and write bytes directly
+PREFERRED CONTENT MODE (markdown_v1):
+- Set "protocol": "markdown_v1"
+- Set "content_format": "markdown"
+- For write_file/append_file use "content_markdown"
+- Put file text as fenced markdown inside a JSON string using escaped newlines.
 
 MULTIPLE ACTIONS IN ONE RESPONSE:
 <ACTION>
 {
+  "protocol": "markdown_v1",
+  "content_format": "markdown",
   "actions": [
     { "action": "make_dir", "path": "src" },
-    { "action": "write_file", "path": "src/hello.py", "content": "<base64>" }
+    {
+      "action": "write_file",
+      "path": "src/hello.py",
+      "content_markdown": "```python\\nprint('hello')\\n```"
+    }
   ]
 }
 </ACTION>
+
+LEGACY MODE (still accepted):
+- Base64 content in "content" remains supported.
 
 IMPORTANT:
 - For questions, analysis, or discussion → respond in normal text.

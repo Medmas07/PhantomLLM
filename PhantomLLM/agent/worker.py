@@ -282,7 +282,9 @@ def _playwright_worker() -> None:
         from agent.config.settings import cfg
         from agent.protocol.system_prompt import get_browser_system_prompt
         from agent.protocol.action_parser import try_extract_action
+        from agent.protocol.action_parser_markdown import try_extract_action_markdown
         from agent.tools.file_tools import execute_actions
+        from agent.tools.file_tools_markdown import execute_actions_markdown
         from agent.models.providers.base_ui import SelectorAmbiguityError
     except Exception as exc:
         _worker_error = f"Import error in worker thread: {exc}"
@@ -417,13 +419,31 @@ def _playwright_worker() -> None:
                 response   = provider.wait_for_response(page, prev_count, timeout)
 
                 # ── ACTION / tool handling ────────────────────────────────
-                action         = try_extract_action(response)
+                md_action      = try_extract_action_markdown(response)
+                action         = None if md_action is not None else try_extract_action(response)
                 tool_result    = None
                 final_response = response   # default: first response
 
-                if action:
+                if md_action:
+                    tool_result = execute_actions_markdown(md_action)
+                elif action:
                     tool_result = execute_actions(action)
+                elif "<ACTION>" in response and "</ACTION>" in response:
+                    # Surface parser failures explicitly so the model can retry
+                    # with strict JSON instead of failing silently.
+                    tool_result = [
+                        {
+                            "error": (
+                                "Invalid ACTION payload: could not parse JSON. "
+                                "Return strict JSON inside <ACTION>...</ACTION>. "
+                                "If using markdown_v1, keep content in "
+                                "content_markdown as a JSON string with escaped "
+                                "newlines (\\n)."
+                            )
+                        }
+                    ]
 
+                if tool_result is not None:
                     # Send tool output back to model and capture its final reply
                     prev2 = provider.get_response_count(page)
                     provider.send_message(page, f"TOOL_RESULT:\n{tool_result}")

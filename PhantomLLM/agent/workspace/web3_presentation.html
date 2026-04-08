@@ -1,0 +1,135 @@
+html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Web3 Creative Presentation</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
+<style>
+ body { margin:0; font-family:'Orbitron', sans-serif; background:#020617; color:white; overflow:hidden; }
+ .slide { display:none; height:100vh; padding:60px; box-sizing:border-box; }
+ .active { display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center; }
+ h1 { font-size:3em; color:#22d3ee; }
+ h2 { color:#38bdf8; }
+ p, li { max-width:700px; }
+ ul { text-align:left; }
+ img { width:300px; border-radius:12px; margin-top:20px; }
+ button { position:fixed; bottom:20px; padding:10px 20px; border:none; background:#22d3ee; color:black; cursor:pointer; font-weight:bold; }
+ #prev { left:20px; }
+ #next { right:20px; }
+</style>
+</head>
+<body>
+
+<div class="slide active">
+ <h1>🌐 WEB3</h1>
+ <p>The Future of the Internet</p>
+ <img src="https://images.unsplash.com/photo-1639762681485-074b7f938ba0" />
+</div>
+
+<div class="slide">
+ <h2>History & Evolution</h2>
+ <ul>
+ <li>Web1: Static content, read-only (1990s)</li>
+ <li>Web2: Social web, user-generated content (2000s)</li>
+ <li>Web3: Decentralized, user-owned data (2020s+)</li>
+ </ul>
+ <img src="https://images.unsplash.com/photo-1593642634367-d91a135587b5" />
+</div>
+
+<div class="slide">
+ <h2>What is Web3?</h2>
+ <p>A decentralized internet powered by blockchain where users own their data and identity.</p>
+ <img src="https://images.unsplash.com/photo-1640161704729-cbe966a08476" />
+</div>
+
+<div class="slide">
+ <h2>Core Technologies</h2>
+ <ul>
+ <li>⛓ Blockchain</li>
+ <li>📜 Smart Contracts</li>
+ <li>💰 Cryptocurrencies</li>
+ <li>🧩 dApps</li>
+ </ul>
+</div>
+
+<div class="slide">
+ <h2>Real-world Applications</h2>
+ <ul>
+ <li>NFTs: Digital art & collectibles</li>
+ <li>DeFi: Decentralized finance platforms</li>
+ <li>DAOs: Decentralized autonomous organizations</li>
+ <li>Web3 Gaming: Play-to-earn ecosystems</li>
+ </ul>
+ <img src="https://images.unsplash.com/photo-1612832021221-b9d8cf6f3c2d" />
+</div>
+
+<div class="slide">
+ <h2>Why Web3 Matters</h2>
+ <ul>
+ <li>🔐 No central authority</li>
+ <li>👤 User ownership</li>
+ <li>🌍 Global access</li>
+ </ul>
+</div>
+
+<div class="slide">
+ <h2>Security & Privacy</h2>
+ <ul>
+ <li>End-to-end encryption</li>
+ <li>Transparent & immutable transactions</li>
+ <li>User-controlled private keys</li>
+ </ul>
+ <img src="https://images.unsplash.com/photo-1612831455547-6d3b109b4f4c" />
+</div>
+
+<div class="slide">
+ <h2>Challenges</h2>
+ <ul>
+ <li>⚡ Scalability</li>
+ <li>🧠 Complexity</li>
+ <li>⚖ Regulation</li>
+ </ul>
+</div>
+
+<div class="slide">
+ <h2>Future Trends</h2>
+ <ul>
+ <li>🌌 Metaverse integration</li>
+ <li>🔗 Interoperable blockchains</li>
+ <li>🤖 AI + Web3 synergy</li>
+ </ul>
+ <img src="https://images.unsplash.com/photo-1601758123927-2f0d3eab5c62" />
+</div>
+
+<div class="slide">
+ <h1>🚀 The Future is Decentralized</h1>
+ <p>Web3 is redefining trust, ownership, and digital freedom.</p>
+</div>
+
+<button id="prev">⬅ Prev</button>
+<button id="next">Next ➡</button>
+
+<script>
+let slides = document.querySelectorAll('.slide');
+let index = 0;
+
+function showSlide(i){
+ slides.forEach(s => s.classList.remove('active'));
+ slides[i].classList.add('active');
+}
+
+document.getElementById('next').onclick = () => {
+ index = (index + 1) % slides.length;
+ showSlide(index);
+};
+
+document.getElementById('prev').onclick = () => {
+ index = (index - 1 + slides.length) % slides.length;
+ showSlide(index);
+};
+</script>
+
+</body>
+</html>
