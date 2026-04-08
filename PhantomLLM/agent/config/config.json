@@ -2,7 +2,7 @@
   "mode": "cli",
   "default_model": "openai_ui",
   "browser_backend": "playwright",
-  "camoufox_fetch_prompted": false,
+  "camoufox_fetch_prompted": true,
   "fallback_enabled": true,
   "fallback_models": [
     "openai_ui",
@@ -14,8 +14,8 @@
   "providers": {
     "openai_ui": {
       "_comment": "ChatGPT via browser automation (Playwright). No API key needed.",
-      "profile_dir": "",
-      "executable_path": "",
+      "profile_dir": "C:\\Users\\medte\\AppData\\Local\\PhantomLLM\\PlaywrightProfile",
+      "executable_path": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
       "chatgpt_url": "https://chat.openai.com"
     },
     "claude": {
