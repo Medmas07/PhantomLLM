@@ -13,7 +13,8 @@ The long-term goal is to keep expanding and maintaining compatibility with as ma
 
 Important: this project is for educational, research, and testing use.  
 It is not a guarantee of production-grade reliability against third-party UI changes.
-
+## Demo
+[🎥 Watch Demo](https://github.com/Medmas07/PhantomLLM/releases/download/untagged-87ac9fe487697d4568a2/demo.mp4)
 ## Core features
 
 - Multi-provider routing (`ChatGPT`, `Gemini`, `Perplexity`, and more providers in progress)
