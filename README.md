@@ -13,8 +13,10 @@ The long-term goal is to keep expanding and maintaining compatibility with as ma
 
 Important: this project is for educational, research, and testing use.  
 It is not a guarantee of production-grade reliability against third-party UI changes.
-## Demo
+## Demo 1
 https://github.com/user-attachments/assets/d545d0cd-b283-444e-b6c3-94a632d88fbd
+## Demo 2
+https://github.com/user-attachments/assets/35883ba5-fcf1-4a29-ac3b-e64696c509ed
 ## Core features
 
 - Multi-provider routing (`ChatGPT`, `Gemini`, `Perplexity`, and more providers in progress)
