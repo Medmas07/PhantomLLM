@@ -14,8 +14,8 @@
   "providers": {
     "openai_ui": {
       "_comment": "ChatGPT via browser automation (Playwright). No API key needed.",
-      "profile_dir": "C:\\Users\\medte\\AppData\\Local\\PhantomLLM\\PlaywrightProfile",
-      "executable_path": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+      "profile_dir": "",
+      "executable_path": "",
       "chatgpt_url": "https://chat.openai.com"
     },
     "claude": {

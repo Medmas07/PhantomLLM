@@ -73,6 +73,56 @@ pip install -r requirements.txt
 playwright install
 ```
 
+## Docker (Camoufox hidden by default)
+
+This repository includes a production-ready container setup for Linux/Windows hosts (Docker Desktop or Docker Engine).
+
+Default container behavior:
+- API mode
+- `camoufox` backend
+- hidden browser (`headless=true`)
+- listening on `0.0.0.0:8000`
+
+Build image locally:
+
+```bash
+docker build -t phantomllm:camoufox-hidden .
+```
+
+Run container:
+
+```bash
+docker run --rm -p 8000:8000 phantomllm:camoufox-hidden
+```
+
+Run with Docker Compose:
+
+```bash
+docker compose up -d --build
+```
+
+Runtime environment variables:
+- `PHANTOM_MODE` (`api` or `cli`)
+- `PHANTOM_MODEL` (for example `openai_ui`)
+- `PHANTOM_BROWSER` (`camoufox` or `playwright`)
+- `PHANTOM_HEADLESS` (`true` or `false`)
+- `PHANTOM_HOST` (default `0.0.0.0`)
+- `PHANTOM_PORT` (default `8000`)
+
+Example override (visible Camoufox):
+
+```bash
+docker run --rm -p 8000:8000 -e PHANTOM_HEADLESS=false phantomllm:camoufox-hidden
+```
+
+### Publish to Docker Hub
+
+```bash
+docker login
+docker tag phantomllm:camoufox-hidden <dockerhub-user>/phantomllm:camoufox-hidden
+docker push <dockerhub-user>/phantomllm:camoufox-hidden
+```
+
 ## Configuration
 
 Edit `agent/config/config.json`:
@@ -186,6 +236,10 @@ Contributions are welcome and encouraged.
 - Add tests, docs, and reproducible bug reports.
 
 Please open an issue or pull request. See `CONTRIBUTING.md` for guidelines.
+
+For responsible usage:
+- keep contributions focused on reliability, transparency, and maintainability
+- treat this project as educational/research/testing software, not guaranteed production compliance with third-party UIs
 
 ## Notes for development
 

@@ -1,0 +1,24 @@
+services:
+  phantomllm:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: your-dockerhub-user/phantomllm:camoufox-hidden
+    container_name: phantomllm
+    restart: unless-stopped
+    environment:
+      PHANTOM_MODE: api
+      PHANTOM_MODEL: openai_ui
+      PHANTOM_BROWSER: camoufox
+      PHANTOM_HEADLESS: "true"
+      PHANTOM_HOST: 0.0.0.0
+      PHANTOM_PORT: "8000"
+    ports:
+      - "8000:8000"
+    volumes:
+      - phantom_cache:/home/phantom/.cache
+      - ./PhantomLLM/agent/workspace:/app/PhantomLLM/agent/workspace
+
+volumes:
+  phantom_cache:
+
