@@ -10,6 +10,12 @@ This project is built as an academic alternative for LLM API credits and usage l
 Instead of calling paid model APIs directly, it automates browser-based chat interfaces and keeps a local workflow for experimentation, orchestration, and tooling research.
 
 The long-term goal is to keep expanding and maintaining compatibility with as many LLM browser UIs as possible.
+> [!WARNING]
+> This project is currently **unstable** and under active experimentation.
+> Development is temporarily paused due to limited availability.
+> Feel free to open issues or submit pull requests — contributions are highly appreciated.
+
+
 
 Important: this project is for educational, research, and testing use.  
 It is not a guarantee of production-grade reliability against third-party UI changes.
