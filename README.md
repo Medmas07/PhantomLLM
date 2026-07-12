@@ -10,6 +10,12 @@ This project is built as an academic alternative for LLM API credits and usage l
 Instead of calling paid model APIs directly, it automates browser-based chat interfaces and keeps a local workflow for experimentation, orchestration, and tooling research.
 
 The long-term goal is to keep expanding and maintaining compatibility with as many LLM browser UIs as possible.
+> [!WARNING]
+> This project is currently **unstable** and under active experimentation.
+> Development is temporarily paused due to limited availability.
+> Feel free to open issues or submit pull requests — contributions are highly appreciated.
+
+
 
 Important: this project is for educational, research, and testing use.  
 It is not a guarantee of production-grade reliability against third-party UI changes.
@@ -78,30 +84,63 @@ playwright install
 
 ## Docker (Camoufox hidden by default)
 
-This repository includes a production-ready container setup for Linux/Windows hosts (Docker Desktop or Docker Engine).
+A prebuilt image is available on Docker Hub:
 
-Default container behavior:
-- API mode
-- `camoufox` backend
-- hidden browser (`headless=true`)
-- listening on `0.0.0.0:8000`
+```bash
+docker pull medteck07/phantomllm:camoufox-hidden
+```
 
-Build image locally:
+### Default runtime behavior
+
+When the container starts:
+
+- API mode enabled  
+- `camoufox` backend  
+- hidden browser (`headless=true`)  
+- listening on `0.0.0.0:8000`  
+
+> ⚠️ These settings apply at **runtime**, not during image build.
+
+---
+
+### Run the container
+
+```bash
+docker run --rm -p 8000:8000 medteck07/phantomllm:camoufox-hidden
+```
+
+---
+
+### Docker Compose
+
+```yaml
+services:
+  phantomllm:
+    image: medteck07/phantomllm:camoufox-hidden
+    ports:
+      - "8000:8000"
+```
+
+```bash
+docker compose up -d
+```
+
+---
+
+### (Optional) Build locally (for development)
 
 ```bash
 docker build -t phantomllm:camoufox-hidden .
 ```
 
-Run container:
+---
+
+### (Optional) Override default behavior
+
+You can override runtime settings using environment variables:
 
 ```bash
-docker run --rm -p 8000:8000 phantomllm:camoufox-hidden
-```
-
-Run with Docker Compose:
-
-```bash
-docker compose up -d --build
+docker run -e HEADLESS=false -p 8000:8000 medteck07/phantomllm:camoufox-hidden
 ```
 
 Runtime environment variables:
@@ -118,13 +157,6 @@ Example override (visible Camoufox):
 docker run --rm -p 8000:8000 -e PHANTOM_HEADLESS=false phantomllm:camoufox-hidden
 ```
 
-### Publish to Docker Hub
-
-```bash
-docker login
-docker tag phantomllm:camoufox-hidden <dockerhub-user>/phantomllm:camoufox-hidden
-docker push <dockerhub-user>/phantomllm:camoufox-hidden
-```
 
 ## Configuration
 
